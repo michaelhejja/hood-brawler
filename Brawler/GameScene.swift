@@ -46,7 +46,7 @@ final class GameScene: SKScene {
     private var vz: CGFloat = 0
     private var airborne = false
     private var falling = false
-    private var lastGesture = "-"
+    private var lastGesture = "-" { didSet { NSLog("MOVE %@", lastGesture) } }
     private var lastTime: TimeInterval = 0
     private let debugLayer = SKNode()
     private let debugLabel = SKLabelNode(fontNamed: "Menlo-Bold")
@@ -170,7 +170,33 @@ final class GameScene: SKScene {
 
     // MARK: Input
 
-    override func didMove(to view: SKView) { view.isMultipleTouchEnabled = true }
+    override func didMove(to view: SKView) {
+        view.isMultipleTouchEnabled = true
+        if ProcessInfo.processInfo.arguments.contains("-demo") { runDemo() }
+    }
+
+    /// Launch with `-demo` to play a scripted input sequence (no touch needed). Exercises every move-table context.
+    private func runDemo() {
+        func fire(_ g: Gesture) -> SKAction { .run { [weak self] in self?.input.fire(g) } }
+        func hold(run: Bool) -> SKAction { .run { [weak self] in self?.input.keyDown("d", run: run) } }
+        let release = SKAction.run { [weak self] in self?.input.keyUp("d") }
+        run(.sequence([
+            .wait(forDuration: 1),
+            fire(.tap), .wait(forDuration: 0.8),                       // grounded tap
+            fire(.swipe(.right)), .wait(forDuration: 0.8),             // grounded forward
+            fire(.swipe(.left)), .wait(forDuration: 0.5),              // grounded back (open: nothing)
+            fire(.swipe(.down)), .wait(forDuration: 0.5),              // grounded down
+            fire(.swipe(.up)), .wait(forDuration: 1.0),                // small jump
+            hold(run: true), .wait(forDuration: 1.8),                  // build up to a full run
+            fire(.tap), .wait(forDuration: 0.7),                       // running tap
+            fire(.swipe(.right)), .wait(forDuration: 0.7),             // running forward
+            fire(.swipe(.up)), .wait(forDuration: 0.25),               // big jump
+            fire(.swipe(.down)), .wait(forDuration: 1.0),              // air slam
+            hold(run: true), .wait(forDuration: 1.8),
+            fire(.swipe(.left)), .wait(forDuration: 0.6),              // running back: skid
+            release, .wait(forDuration: 1)
+        ]))
+    }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.began(touches, in: v) } }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.moved(touches, in: v) } }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.ended(touches, in: v) } }
