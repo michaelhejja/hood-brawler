@@ -36,6 +36,14 @@ final class GameScene: SKScene {
     private var velocity: CGFloat = 0
     private var moveDir = CGVector(dx: 1, dy: 0)
     private var actionUntil: TimeInterval = 0
+    // Height axis (pt, pt/s, pt/s²). Height is separate from the lane position, so jumping never moves him in depth.
+    private let gravity: CGFloat = 2400
+    private let smallJumpVZ: CGFloat = 800      // apex ~133pt, ~0.67s in the air
+    private let slamVZ: CGFloat = 1500
+    private let airDecel: CGFloat = 250         // momentum carries through the air
+    private var vz: CGFloat = 0
+    private var airborne = false
+    private var falling = false
     private var lastGesture = "-"
     private var lastTime: TimeInterval = 0
     private let debugLayer = SKNode()
@@ -166,25 +174,53 @@ final class GameScene: SKScene {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.ended(touches, in: v) } }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { input.cancelled(touches) }
 
-    /// Placeholder mapping until the move table exists: just proves gestures reach the hero.
+    /// Placeholder mapping until the move table exists.
     private func handle(_ g: Gesture) {
         let forward: SwipeDirection = hero.facingRight ? .right : .left
-        var label = ""
-        var anim: CharacterAnimation?
-        var lock: TimeInterval = 0
         switch g {
-        case .tap:                   label = "tap";          anim = .attack; lock = 0.5
-        case .swipe(.up):            label = "swipe up";     anim = .leap;   lock = 0.9
-        case .swipe(.down):          label = "swipe down"
-        case .swipe(let d) where d == forward: label = "swipe forward"; anim = .attack; lock = 0.5
-        case .swipe:                 label = "swipe back (open)"
+        case .swipe(.up):
+            lastGesture = "swipe up"
+            if !airborne { startJump(vz: smallJumpVZ) }
+        case .swipe(.down):
+            lastGesture = "swipe down"
+            if airborne { vz = -slamVZ; falling = true; hero.play(.fall) }
+        case .tap:
+            lastGesture = "tap"
+            if !airborne { attack() }
+        case .swipe(let d) where d == forward:
+            lastGesture = "swipe forward"
+            if !airborne { attack() }
+        case .swipe:
+            lastGesture = "swipe back (open)"
         }
-        lastGesture = label
-        guard let anim else { return }
+    }
+
+    private func attack() {
         hero.speed = 1
-        hero.play(anim)
-        actionUntil = lastTime + lock
+        hero.play(.attack)
+        actionUntil = lastTime + 0.5
         loco = nil
+    }
+
+    private func startJump(vz v: CGFloat) {
+        airborne = true; falling = false; vz = v
+        hero.speed = 1
+        hero.play(.jump)
+        loco = nil
+    }
+
+    private func stepHeight(_ dt: CGFloat, now: TimeInterval) {
+        guard airborne else { return }
+        vz -= gravity * dt
+        hero.height += vz * dt
+        if vz < 0, !falling { falling = true; hero.play(.fall) }
+        if hero.height <= 0 {
+            hero.height = 0
+            airborne = false; falling = false; vz = 0
+            hero.play(.land)
+            actionUntil = now + 0.15
+            loco = nil
+        }
     }
 
     // MARK: Debug overlay
@@ -203,8 +239,8 @@ final class GameScene: SKScene {
             dot.position = c
             debugLayer.addChild(ring); debugLayer.addChild(dot)
         }
-        let state = loco.map { "\($0)" } ?? "action"
-        debugLabel.text = "\(state)  speed \(Int(velocity))  |  last: \(lastGesture)"
+        let state = airborne ? "air" : (loco.map { "\($0)" } ?? "action")
+        debugLabel.text = "\(state)  speed \(Int(velocity))  h \(Int(hero.height))  |  last: \(lastGesture)"
     }
 
     // MARK: Loop
@@ -224,7 +260,7 @@ final class GameScene: SKScene {
             // Bigger / faster thumb drags reach full velocity sooner
             velocity = min(targetSpeed, velocity + (baseAccel + input.dragSpeed * dragAccelGain) * d)
         } else {
-            let decel = hasInput ? steerDecel : (velocity > runSpeed * 0.8 ? skidDecel : stopDecel)
+            let decel = hasInput ? steerDecel : (airborne ? airDecel : (velocity > runSpeed * 0.8 ? skidDecel : stopDecel))
             velocity = max(targetSpeed, velocity - decel * d)
         }
         if velocity > 0 {
@@ -236,7 +272,8 @@ final class GameScene: SKScene {
         if hasInput, abs(input.direction.dx) > 0.25 { hero.facingRight = input.direction.dx > 0 }
 
         // Locomotion animation (paused while an action plays)
-        if currentTime >= actionUntil {
+        stepHeight(d, now: currentTime)
+        if !airborne, currentTime >= actionUntil {
             let desired: Loco = velocity < 20 ? .idle : (velocity < runSpeed * 0.7 ? .walk : .run)
             if desired != loco {
                 loco = desired

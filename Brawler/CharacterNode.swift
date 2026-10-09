@@ -2,7 +2,9 @@ import SpriteKit
 
 enum CharacterAnimation: String, CaseIterable, Identifiable {
     case idle, run, attack, leap, hit
+    case jump, fall, land      // driven by the scene's height physics, not shown in the lab
     var id: String { rawValue }
+    static let showcase: [CharacterAnimation] = [.idle, .run, .attack, .leap, .hit]
     var title: String { rawValue.capitalized }
 }
 
@@ -38,6 +40,7 @@ final class CharacterNode: SKNode {
     private let swordRest: CGFloat = .pi + 2.0
     private let armLength: CGFloat = 28
 
+    private let rig = SKNode()      // lifts the body off the ground; the shadow stays put
     private let body = SKNode()
     private let shadow = styled(SKShapeNode(ellipseOf: CGSize(width: 64, height: 14)),
                                 SKColor(white: 0, alpha: 0.25), line: 0)
@@ -49,6 +52,9 @@ final class CharacterNode: SKNode {
     private let head = SKNode()
     private let sword = SKShapeNode()
 
+    /// Distance above the ground (pt, unscaled). The scene's physics drives this.
+    var height: CGFloat = 0 { didSet { rig.position.y = height; updateShadow() } }
+
     var scaleFactor: CGFloat = 1 { didSet { applyScale() } }
     var facingRight = true { didSet { applyScale() } }
 
@@ -59,6 +65,12 @@ final class CharacterNode: SKNode {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    private func updateShadow() {
+        let k = max(0.35, 1 - height / 350)
+        shadow.setScale(k)
+        shadow.alpha = max(0.4, k)
+    }
+
     private func applyScale() {
         xScale = (facingRight ? 1 : -1) * scaleFactor
         yScale = scaleFactor
@@ -66,7 +78,8 @@ final class CharacterNode: SKNode {
 
     private func build() {
         addChild(shadow)
-        addChild(body)
+        addChild(rig)
+        rig.addChild(body)
         body.position = CGPoint(x: 0, y: restY)
 
         legBack.position = CGPoint(x: -9, y: 0);  legBack.zPosition = -3
@@ -114,25 +127,33 @@ final class CharacterNode: SKNode {
     // MARK: Playback
 
     func play(_ animation: CharacterAnimation) {
-        resetPose()
+        if animation == .fall { stopActions() } else { resetPose() }
         switch animation {
         case .idle:   idle()
         case .run:    run()
         case .attack: attack()
         case .leap:   leap()
         case .hit:    hit()
+        case .jump:   jump()
+        case .fall:   fall()
+        case .land:   land()
         }
     }
 
+    private func stopActions() {
+        [self, body, legBack, legFront, armBack, armFront, sword].forEach { $0.removeAllActions() }
+    }
+
     private func resetPose() {
-        [self, body, legBack, legFront, armBack, armFront, sword, shadow].forEach { $0.removeAllActions() }
+        stopActions()
+        shadow.removeAllActions()
         body.position = CGPoint(x: 0, y: restY)
         body.zRotation = 0
         body.xScale = 1; body.yScale = 1
         legBack.zRotation = 0; legFront.zRotation = 0
         armBack.zRotation = 0; armFront.zRotation = armRest
         sword.zRotation = swordRest
-        shadow.setScale(1); shadow.alpha = 1
+        updateShadow()
         alpha = 1
     }
 
@@ -192,6 +213,36 @@ final class CharacterNode: SKNode {
             .group([.scale(to: 1, duration: 0.18), .fadeAlpha(to: 1, duration: 0.18)])
         ]))
         run(.sequence([.wait(forDuration: 0.63), .run { [weak self] in self?.puff() }]))
+    }
+
+    // Air poses: the scene owns the vertical motion (see `height`)
+
+    private func jump() {
+        body.run(.sequence([
+            pose(y: restY * 0.85, sx: 1.1, sy: 0.85, d: 0.06),
+            pose(y: restY, sx: 0.94, sy: 1.08, d: 0.12, .easeOut)
+        ]))
+        track(armFront, [(-0.6, 0.06), (2.9, 0.16)])
+        track(armBack, [(-0.6, 0.06), (2.6, 0.16)])
+        track(legFront, [(0.6, 0.12)])
+        track(legBack, [(-0.5, 0.12)])
+    }
+
+    private func fall() {
+        body.run(pose(y: restY, sx: 0.94, sy: 1.08, d: 0.12))
+        track(armFront, [(0.15, 0.15)])
+        track(armBack, [(0.1, 0.15)])
+        track(legFront, [(0, 0.15)])
+        track(legBack, [(0, 0.15)])
+        track(sword, [(.pi, 0.1)])
+    }
+
+    private func land() {
+        puff()
+        body.run(.sequence([
+            pose(y: restY * 0.75, sx: 1.2, sy: 0.75, d: 0.05),
+            pose(y: restY, d: 0.1, .easeOut)
+        ]))
     }
 
     private func hit() {

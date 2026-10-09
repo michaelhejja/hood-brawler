@@ -52,7 +52,7 @@ struct CharacterVisualizerView: View {
 
     private var controls: some View {
         HStack(spacing: 12) {
-            ForEach(CharacterAnimation.allCases) { animation in
+            ForEach(CharacterAnimation.showcase) { animation in
                 Button(animation.title) {
                     selected = animation
                     scene.character.play(animation)
