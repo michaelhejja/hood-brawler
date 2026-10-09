@@ -49,6 +49,7 @@ struct Move {
     var jumpHang = JumpTuning.hang
     var slam = false                 // dive to the ground
     var brake: TimeInterval = 0      // > 0 forces a hard stop for this long (skid)
+    var power: CGFloat = 1           // relative damage / knockback (used once hit detection exists)
     var cancelAt = ComboTuning.cancelAt
     var window = ComboTuning.window
 }
@@ -72,11 +73,14 @@ enum MoveTable {
         (.running,  .back,    Move(name: "skid stop",     animation: .land, lock: 0.3, brake: 0.3)), // (placeholder) land pose
 
         // In the air
-        (.airborne, .down,    Move(name: "air slam",      animation: .slam, slam: true)),
+        (.airborne, .down,    Move(name: "air slam",      animation: .slam, slam: true, power: 1.0)),
     ]
 
     // Combo links: after `from` (by move name), `trigger` gives the next move. Input-driven: no hit required.
     private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760)
+
+    /// Running ground slam. Same shockwave and knockback as the air slam, a bit less powerful.
+    private static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, brake: 0.4, power: 0.7)
 
     private static let uppercut = Move(name: "uppercut", jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26)   // (placeholder) jump pose
 
@@ -90,8 +94,8 @@ enum MoveTable {
         ("power dash",   .up,   uppercut),                       // ... including after a full run
         ("slam landing", .forward, powerDash),                   // juggle: slam, then straight back into a dash
         ("slam landing", .up,   uppercut),                       // ... or launch them
-        ("power dash", .down, Move(name: "ground smash", animation: .attack, lock: 0.6)),             // (placeholder) overhead slam
-        ("dash attack", .down, Move(name: "ground smash", animation: .attack, lock: 0.6)),
+        ("power dash",  .down, groundSmash),
+        ("dash attack", .down, groundSmash),
     ]
     private static let chainTable: [String: Move] = Dictionary(
         uniqueKeysWithValues: chains.map { ("\($0.from)|\($0.trigger.rawValue)", $0.move) })

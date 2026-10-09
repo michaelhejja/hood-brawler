@@ -5,8 +5,9 @@ enum CharacterAnimation: String, CaseIterable, Identifiable {
     case jab, hook             // boxing pair: jab = tap (off hand), hook = forward swipe (weapon hand)
     case jump, fall, land      // driven by the scene's height physics, not shown in the lab
     case slam, slamLand        // air-to-ground attack: the dive, then the impact
+    case smash                 // running ground slam: two-handed overhead swing
     var id: String { rawValue }
-    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .attack, .leap, .hit, .slam]
+    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .smash, .leap, .hit, .slam]
     var title: String { rawValue.capitalized }
 }
 
@@ -146,6 +147,7 @@ final class CharacterNode: SKNode {
         case .fall:   fall()
         case .land:   land()
         case .slam:   slam()
+        case .smash:  smash()
         case .slamLand: slamLand()
         }
     }
@@ -162,6 +164,7 @@ final class CharacterNode: SKNode {
         body.xScale = 1; body.yScale = 1
         legBack.zRotation = 0; legFront.zRotation = 0
         armOff.position = CGPoint(x: 17, y: 44)
+        armOff.zPosition = -1
         armOff.zRotation = 0; armWeapon.zRotation = armRest
         sword.zRotation = swordRest
         updateShadow()
@@ -290,6 +293,37 @@ final class CharacterNode: SKNode {
         streaks()
     }
 
+    /// Running ground slam: both hands on the weapon, hauled back behind the head, then driven down into the
+    /// ground ahead. Feet leave the ground on the windup. A smaller cousin of the air slam's impact.
+    private func smash() {
+        // Off hand slides over to the grip and draws in front of the body: two hands on the weapon
+        armOff.run(.move(to: CGPoint(x: -8, y: 45), duration: 0.1))
+        armOff.zPosition = 4
+
+        // Arms: back behind the head, brief hold, then crash down ahead
+        let wind: CGFloat = 3.7, strike: CGFloat = 0.8
+        track(armWeapon, [(wind, 0.14), (nil, 0.06), (strike, 0.07), (nil, 0.2), (armRest, 0.15)])
+        track(armOff,    [(wind, 0.14), (nil, 0.06), (strike, 0.07), (nil, 0.2), (0, 0.15)])
+        track(sword,     [(.pi, 0.1), (nil, 0.56), (swordRest, 0.15)])
+
+        // Body: leaps up and leans back, then slams down and forward
+        track(body, [(0.3, 0.14), (nil, 0.06), (-0.4, 0.07), (nil, 0.2), (0, 0.15)])
+        body.run(.sequence([
+            pose(y: restY + 34, sx: 0.95, sy: 1.06, d: 0.14, .easeOut),    // feet lift off
+            .wait(forDuration: 0.06),
+            pose(y: restY * 0.78, sx: 1.18, sy: 0.8, d: 0.07, .easeIn),     // crash down
+            pose(y: restY * 0.85, sx: 1.08, sy: 0.9, d: 0.2, .easeOut),
+            pose(y: restY, d: 0.15),
+            returnToIdle
+        ]))
+        track(legFront, [(0.7, 0.14), (nil, 0.06), (-0.2, 0.07), (nil, 0.35)])   // legs tuck up, then plant
+        track(legBack,  [(-0.6, 0.14), (nil, 0.06), (0.3, 0.07), (nil, 0.35)])
+
+        run(.sequence([.wait(forDuration: 0.27), .run { [weak self] in
+            self?.puff(); self?.shockwave(scale: 2.6, at: 70)
+        }]))
+    }
+
     /// Impact: deep crouch, weapon planted in the ground ahead, shockwave. Held through the landing cooldown.
     private func slamLand() {
         puff()
@@ -389,13 +423,13 @@ final class CharacterNode: SKNode {
         }
     }
 
-    private func shockwave() {
+    private func shockwave(scale: CGFloat = 3.6, at x: CGFloat = 0) {
         let ring = styled(SKShapeNode(ellipseOf: CGSize(width: 60, height: 16)), .clear, line: 5)
         ring.strokeColor = .white
-        ring.position = CGPoint(x: 0, y: 4)
+        ring.position = CGPoint(x: x, y: 4)
         ring.zPosition = -5
         addChild(ring)
-        ring.run(.sequence([.group([.scale(to: 3.6, duration: 0.3), .fadeOut(withDuration: 0.3)]), .removeFromParent()]))
+        ring.run(.sequence([.group([.scale(to: scale, duration: 0.3), .fadeOut(withDuration: 0.3)]), .removeFromParent()]))
     }
 
     private func puff() {
