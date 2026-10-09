@@ -69,5 +69,5 @@ final class SkeletonNode: SKNode {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    func face(right: Bool) { xScale = right ? 1 : -1 }
+    func face(right: Bool) { xScale = (right ? 1 : -1) * abs(xScale) }
 }
