@@ -23,6 +23,28 @@ final class CharacterVisualizerScene: SKScene {
     func play(_ animation: CharacterAnimation) {
         removeAction(forKey: "slam")
         character.height = 0
+        if animation == .uppercut {
+            let rise = 0.22, hang = 0.26, fall = 0.34, peak: CGFloat = 200
+            func ease(_ t: CGFloat) -> CGFloat {
+                let a = pow(t, JumpTuning.ease), b = pow(1 - t, JumpTuning.ease)
+                return a / (a + b)
+            }
+            character.play(.uppercut)
+            let arc = SKAction.customAction(withDuration: rise + hang + fall) { [weak self] _, elapsed in
+                let t = Double(elapsed)
+                let h: CGFloat
+                if t < rise { h = peak * ease(CGFloat(t / rise)) }
+                else if t < rise + hang { h = peak }
+                else { h = peak * (1 - ease(CGFloat((t - rise - hang) / fall))) }
+                self?.character.height = h
+            }
+            run(.sequence([
+                .group([arc, .sequence([.wait(forDuration: rise + hang), .run { [weak self] in self?.character.play(.fall) }])]),
+                .run { [weak self] in self?.character.height = 0; self?.character.play(.land) },
+                .wait(forDuration: 0.5),
+                .run { [weak self] in self?.character.play(.idle) }]), withKey: "slam")
+            return
+        }
         guard animation == .slam else { character.play(animation); return }
         character.height = 180
         character.play(.slam)

@@ -179,7 +179,7 @@ final class GameScene: SKScene {
         if ProcessInfo.processInfo.arguments.contains("-demo") { runDemo() }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
-            run(.sequence([.wait(forDuration: 1), .run { [weak self] in if a == .slam { self?.hero.height = 150 }; self?.hero.speed = 0.08; self?.hero.play(a) }]))   // slow-mo
+            run(.sequence([.wait(forDuration: 1), .run { [weak self] in if a == .slam || a == .uppercut { self?.hero.height = 150 }; self?.hero.speed = 0.08; self?.hero.play(a) }]))   // slow-mo
         }
     }
 
@@ -326,7 +326,7 @@ final class GameScene: SKScene {
         airborne = true; falling = false; vz = 0
         jump = (m.jumpHeight, m.jumpRise, m.jumpHang, m.jumpFall, 0)
         hero.speed = 1
-        hero.play(.jump)
+        hero.play(m.animation ?? .jump)
         loco = nil
     }
 

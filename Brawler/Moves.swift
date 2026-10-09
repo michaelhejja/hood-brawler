@@ -82,7 +82,7 @@ enum MoveTable {
     /// Running ground slam. Same shockwave and knockback as the air slam, a bit less powerful.
     private static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, brake: 0.4, power: 0.7)
 
-    private static let uppercut = Move(name: "uppercut", jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26)   // (placeholder) jump pose
+    private static let uppercut = Move(name: "uppercut", animation: .uppercut, jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26)
 
     /// Landing from an air slam: a short recovery during which the combo chain is open from the first frame.
     static let slamLanding = Move(name: "slam landing", animation: .slamLand, lock: 0.3, cancelAt: 0)

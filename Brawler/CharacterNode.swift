@@ -6,8 +6,9 @@ enum CharacterAnimation: String, CaseIterable, Identifiable {
     case jump, fall, land      // driven by the scene's height physics, not shown in the lab
     case slam, slamLand        // air-to-ground attack: the dive, then the impact
     case smash                 // running ground slam: two-handed overhead swing
+    case uppercut              // launcher: cock low, swing up, head thrown back
     var id: String { rawValue }
-    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .smash, .leap, .hit, .slam]
+    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .uppercut, .smash, .hit, .slam]
     var title: String { rawValue.capitalized }
 }
 
@@ -148,12 +149,13 @@ final class CharacterNode: SKNode {
         case .land:   land()
         case .slam:   slam()
         case .smash:  smash()
+        case .uppercut: uppercut()
         case .slamLand: slamLand()
         }
     }
 
     private func stopActions() {
-        [self, body, legBack, legFront, armOff, armWeapon, sword].forEach { $0.removeAllActions() }
+        [self, body, head, legBack, legFront, armOff, armWeapon, sword].forEach { $0.removeAllActions() }
     }
 
     private func resetPose() {
@@ -161,6 +163,7 @@ final class CharacterNode: SKNode {
         shadow.removeAllActions()
         body.position = CGPoint(x: 0, y: restY)
         body.zRotation = 0
+        head.zRotation = 0
         body.xScale = 1; body.yScale = 1
         legBack.zRotation = 0; legFront.zRotation = 0
         armOff.position = CGPoint(x: 17, y: 44)
@@ -272,6 +275,8 @@ final class CharacterNode: SKNode {
     }
 
     private func fall() {
+        track(head, [(0, 0.2)])
+        track(body, [(0, 0.2)])
         body.run(pose(y: restY, sx: 0.94, sy: 1.08, d: 0.12))
         track(armWeapon, [(0.15, 0.15)])
         track(armOff, [(0.1, 0.15)])
@@ -291,6 +296,27 @@ final class CharacterNode: SKNode {
         track(legBack, [(-0.3, 0.1)])
         body.run(pose(y: restY, sx: 0.92, sy: 1.1, d: 0.1))
         streaks()
+    }
+
+    /// Uppercut: sink low with the weapon hauled down and back, then uncoil upward in one big arc.
+    /// Front leg drives up, back leg stays pointed down, head is thrown back to follow the blade.
+    /// The scene lifts the hero (ease-in-out jump); the pose then holds through the hang.
+    private func uppercut() {
+        // Cock (0.07s) -> swing (0.12s) -> hold
+        track(armWeapon, [(-1.0, 0.07), (2.95, 0.12)])
+        track(armOff,    [(1.0, 0.07), (-0.5, 0.12)])           // guard hand drops back as a counterweight
+        track(sword,     [(.pi, 0.05)])                          // blade continues the line of the arm
+        track(head,      [(-0.2, 0.07), (0.6, 0.12)])            // eyes on the target, then chin up
+        track(body,      [(-0.2, 0.07), (0.2, 0.12)])            // coil forward, then arch back
+        track(legFront,  [(0.5, 0.07), (1.35, 0.12)])            // knee drives up with the swing
+        track(legBack,   [(-0.7, 0.07), (-0.1, 0.12)])           // trailing leg extends, toe pointed down
+        body.run(.sequence([
+            pose(y: restY * 0.72, sx: 1.18, sy: 0.75, d: 0.07),            // deep crouch
+            pose(y: restY * 1.12, sx: 0.9, sy: 1.15, d: 0.12, .easeOut)    // stretch tall
+        ]))
+        run(.sequence([.wait(forDuration: 0.07), .run { [weak self] in
+            self?.spawnSlash(start: -0.9, end: 1.7, radius: 100, lift: 26, clockwise: false, parent: self?.rig)
+        }]))
     }
 
     /// Running ground slam: both hands on the weapon, hauled back behind the head, then driven down into the
@@ -387,14 +413,15 @@ final class CharacterNode: SKNode {
 
     // MARK: Effects
 
-    private func spawnSlash(start: CGFloat = 2.0, end: CGFloat = -0.4, radius: CGFloat = 70, lift: CGFloat = 44) {
+    private func spawnSlash(start: CGFloat = 2.0, end: CGFloat = -0.4, radius: CGFloat = 70, lift: CGFloat = 44,
+                            clockwise: Bool = true, parent: SKNode? = nil) {
         let path = CGMutablePath()
-        path.addArc(center: .zero, radius: radius, startAngle: start, endAngle: end, clockwise: true)
+        path.addArc(center: .zero, radius: radius, startAngle: start, endAngle: end, clockwise: clockwise)
         let fx = SKShapeNode(path: path)
         fx.strokeColor = .white; fx.lineWidth = 8; fx.lineCap = .round; fx.glowWidth = 3
         fx.position = CGPoint(x: 17, y: restY + lift)
         fx.zPosition = 10
-        addChild(fx)
+        (parent ?? self).addChild(fx)
         fx.run(.sequence([.group([.fadeOut(withDuration: 0.18), .scale(to: 1.15, duration: 0.18)]),
                           .removeFromParent()]))
     }
