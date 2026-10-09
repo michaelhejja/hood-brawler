@@ -8,12 +8,12 @@ enum CharacterAnimation: String, CaseIterable, Identifiable {
 
 // MARK: - Shape helpers (swap for sprites later)
 
-private let ink = SKColor(red: 0.08, green: 0.06, blue: 0.12, alpha: 1)
+let ink = SKColor(red: 0.08, green: 0.06, blue: 0.12, alpha: 1)
 private let cloak = SKColor(red: 0.36, green: 0.28, blue: 0.50, alpha: 1)
 private let cloakDark = SKColor(red: 0.24, green: 0.18, blue: 0.36, alpha: 1)
 
 @discardableResult
-private func styled(_ s: SKShapeNode, _ fill: SKColor, line: CGFloat = 4) -> SKShapeNode {
+func styled(_ s: SKShapeNode, _ fill: SKColor, line: CGFloat = 4) -> SKShapeNode {
     s.fillColor = fill
     s.strokeColor = line > 0 ? ink : .clear
     s.lineWidth = line

@@ -5,6 +5,7 @@ enum Game {
 }
 
 struct MenuView: View {
+    let onPlay: () -> Void
     let onLab: () -> Void
 
     var body: some View {
@@ -22,9 +23,8 @@ struct MenuView: View {
                         .foregroundStyle(.white.opacity(0.6))
                 }
                 VStack(spacing: 16) {
-                    Button("PLAY") {}
+                    Button("PLAY", action: onPlay)
                         .buttonStyle(ChunkyButtonStyle(color: .orange))
-                        .disabled(true)
                     Button("CHARACTER LAB", action: onLab)
                         .buttonStyle(ChunkyButtonStyle(color: .green))
                 }
