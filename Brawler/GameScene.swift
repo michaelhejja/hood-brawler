@@ -83,7 +83,6 @@ final class GameScene: SKScene {
         cam.addChild(divider)
         debugLabel.fontSize = 22
         debugLabel.fontColor = .white
-        debugLabel.position = CGPoint(x: 0, y: size.height / 2 - 40)
         debugLabel.zPosition = 10_001
         cam.addChild(debugLabel)
         input.onGesture = { [weak self] in self?.handle($0) }
@@ -260,8 +259,16 @@ final class GameScene: SKScene {
 
     // MARK: Debug overlay
 
+    /// Half the visible height in scene units. aspectFill crops the scene on wider screens, so size.height overshoots.
+    private var visibleHalfHeight: CGFloat {
+        guard let v = view, v.bounds.width > 0, v.bounds.height > 0 else { return size.height / 2 }
+        let scale = max(v.bounds.width / size.width, v.bounds.height / size.height)
+        return v.bounds.height / scale / 2
+    }
+
     private func updateDebug() {
         debugLayer.removeAllChildren()
+        debugLabel.position = CGPoint(x: 0, y: visibleHalfHeight - 56)
         for t in input.debugTouches {
             let o = cam.convert(convertPoint(fromView: t.origin), from: self)
             let c = cam.convert(convertPoint(fromView: t.current), from: self)
