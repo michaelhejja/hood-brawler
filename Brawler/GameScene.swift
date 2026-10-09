@@ -46,7 +46,7 @@ final class GameScene: SKScene {
     private var current: (move: Move, start: TimeInterval)?
     private var buffered: (gesture: Gesture, time: TimeInterval)?
     private var vz: CGFloat = 0
-    private var jump: (height: CGFloat, rise: CGFloat, fall: CGFloat, t: CGFloat)?   // nil = physics (slam)
+    private var jump: (height: CGFloat, rise: CGFloat, hang: CGFloat, fall: CGFloat, t: CGFloat)?   // nil = physics (slam)
     private var airborne = false
     private var falling = false
     private var lastGesture = "-" { didSet { NSLog("MOVE %@", lastGesture) } }
@@ -313,7 +313,7 @@ final class GameScene: SKScene {
 
     private func startJump(_ m: Move) {
         airborne = true; falling = false; vz = 0
-        jump = (m.jumpHeight, m.jumpRise, m.jumpFall, 0)
+        jump = (m.jumpHeight, m.jumpRise, m.jumpHang, m.jumpFall, 0)
         hero.speed = 1
         hero.play(.jump)
         loco = nil
@@ -332,12 +332,16 @@ final class GameScene: SKScene {
             j.t += dt
             if j.t < j.rise {
                 hero.height = j.height * ease(j.t / j.rise)
+            } else if j.t < j.rise + j.hang {
+                // Hang: drifts a touch higher, then settles. The air-slam decision window.
+                let h = (j.t - j.rise) / j.hang
+                hero.height = j.height + 10 * sin(h * .pi)
             } else {
                 if !falling { falling = true; hero.play(.fall) }
-                hero.height = j.height * (1 - ease(min(1, (j.t - j.rise) / j.fall)))
+                hero.height = j.height * (1 - ease(min(1, (j.t - j.rise - j.hang) / j.fall)))
             }
             jump = j
-            if j.t < j.rise + j.fall { return }
+            if j.t < j.rise + j.hang + j.fall { return }
         } else {
             vz -= gravity * dt
             hero.height += vz * dt
