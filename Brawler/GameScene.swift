@@ -13,8 +13,8 @@ struct LevelConfig {
 final class GameScene: SKScene {
     var level = LevelConfig()
 
-    let hero = HumanoidRig(skin: HeroSkin())
-    private var skeletons: [HumanoidRig] = []
+    let hero = Fighter(name: "hero", skin: HeroSkin())
+    private var enemies: [Fighter] = []
 
     private let cam = SKCameraNode()
     private let groundHeight: CGFloat = 250
@@ -24,33 +24,7 @@ final class GameScene: SKScene {
     private var baseCamY: CGFloat { size.height / 2 }
     private var layers: [(node: SKNode, fx: CGFloat, fy: CGFloat, tileW: CGFloat)] = []
 
-    // Locomotion tuning (pt/s and pt/s²)
-    private let runSpeed: CGFloat = 520
-    private let baseAccel: CGFloat = 1500       // slow drag: ~0.35s to full speed
-    private let dragAccelGain: CGFloat = 1.2    // + thumb speed * gain: a fast flick: ~0.2s
-    private let steerDecel: CGFloat = 2400      // thumb still down but pushing less
-    private let stopDecel: CGFloat = 3600       // thumb lifted: quick stop
-    private let skidDecel: CGFloat = 1800       // thumb lifted at full run: small skid
-
     let input = InputController()
-    private enum Loco { case idle, walk, run }
-    private var loco: Loco?
-    private var velocity: CGFloat = 0
-    private var moveDir = CGVector(dx: 1, dy: 0)
-    private var actionUntil: TimeInterval = 0
-    // Height axis (pt, pt/s, pt/s²). Height is separate from the lane position, so jumping never moves him in depth.
-    private let gravity: CGFloat = 2400
-    private let slamVZ: CGFloat = 1500
-    private let airDecel: CGFloat = 250         // momentum carries through the air
-    private let brakeDecel: CGFloat = 3600
-    private var brakeUntil: TimeInterval = 0
-    private var current: (move: Move, start: TimeInterval)?
-    private var buffered: (gesture: Gesture, time: TimeInterval)?
-    private var vz: CGFloat = 0
-    private var jump: (height: CGFloat, rise: CGFloat, hang: CGFloat, fall: CGFloat, t: CGFloat)?   // nil = physics (slam)
-    private var airborne = false
-    private var falling = false
-    private var lastGesture = "-" { didSet { NSLog("MOVE %@", lastGesture) } }
     private var lastTime: TimeInterval = 0
     private let debugLayer = SKNode()
     private let debugLabel = SKLabelNode(fontNamed: "Menlo-Bold")
@@ -64,21 +38,21 @@ final class GameScene: SKScene {
         addChild(cam)
         buildWorld()
 
-        hero.scaleFactor = 1.3
-        hero.returnsToIdle = false
-        hero.position = CGPoint(x: size.width / 2, y: 120)
-        addChild(hero)
+        hero.rig.scaleFactor = 1.3
+        hero.rig.position = CGPoint(x: size.width / 2, y: 120)
+        hero.logPrefix = ""
+        addChild(hero.rig)
 
         for (x, y) in [(900, 90), (1150, 170), (1450, 120)] as [(CGFloat, CGFloat)] {
-            let s = HumanoidRig(skin: SkeletonSkin())
-            s.scaleFactor = 1.3
-            s.facingRight = false
-            skeletons.append(s)
-            s.position = CGPoint(x: x, y: y)
-            s.zPosition = 300 - y
-            addChild(s)
+            let e = Fighter(name: "skeleton", skin: SkeletonSkin())
+            e.rig.scaleFactor = 1.3
+            e.rig.facingRight = false
+            e.rig.position = CGPoint(x: x, y: y)
+            e.rig.zPosition = 300 - y
+            enemies.append(e)
+            addChild(e.rig)
         }
-        hero.zPosition = 300 - hero.position.y
+        hero.rig.zPosition = 300 - hero.rig.position.y
 
         // Debug overlay lives on the camera so it stays on screen
         debugLayer.zPosition = 10_000
@@ -91,7 +65,7 @@ final class GameScene: SKScene {
         debugLabel.fontColor = .white
         debugLabel.zPosition = 10_001
         cam.addChild(debugLabel)
-        input.onGesture = { [weak self] in self?.handle($0) }
+        input.onGesture = { [weak self] in self?.hero.handle($0) }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -179,12 +153,13 @@ final class GameScene: SKScene {
         view.isMultipleTouchEnabled = true
         setupKeyboard()
         if ProcessInfo.processInfo.arguments.contains("-demo") { runDemo() }
-        if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero) }
+        if ProcessInfo.processInfo.arguments.contains("-enemy") { runEnemyDemo() }
+        if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
             run(.sequence([.wait(forDuration: 1), .run { [weak self] in   // slow-mo, hero and skeletons side by side
                 guard let self else { return }
-                for r in [self.hero] + self.skeletons {
+                for r in ([self.hero] + self.enemies).map(\.rig) {
                     if a == .slam || a == .uppercut { r.height = 150 }
                     r.speed = 0.08; r.play(a)
                 }
@@ -235,6 +210,22 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-enemy`: a skeleton fights using the exact same Fighter / move table as the hero.
+    private func runEnemyDemo() {
+        guard let e = enemies.first else { return }
+        e.logPrefix = "skeleton: "
+        func fire(_ g: Gesture) -> SKAction { .run { e.handle(g) } }
+        run(.sequence([
+            .wait(forDuration: 1),
+            fire(.tap), .wait(forDuration: 0.2),                       // jab ...
+            fire(.tap), .wait(forDuration: 0.8),                       // ... jab 2
+            fire(.swipe(.left)), .wait(forDuration: 0.8),              // swipe left = forward for a left-facing skeleton
+            fire(.swipe(.up)), .wait(forDuration: 0.3),                // jump
+            fire(.swipe(.down)), .wait(forDuration: 1.0),              // air slam
+            fire(.swipe(.left)), .wait(forDuration: 0.8)               // -> power dash from the landing cooldown
+        ]))
     }
 
     /// Launch with `-demo` to play a scripted input sequence (no touch needed). Exercises every move-table context.
@@ -288,118 +279,6 @@ final class GameScene: SKScene {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.ended(touches, in: v) } }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { input.cancelled(touches) }
 
-    /// What the hero can do right now. Running = grounded and fast.
-    private var context: MoveContext {
-        airborne ? .airborne : (velocity > runSpeed * 0.7 ? .running : .grounded)
-    }
-
-    private func handle(_ g: Gesture, bufferedAt: TimeInterval? = nil) {
-        let trigger = Trigger(g, facingRight: hero.facingRight)
-        let ctx = context
-        let now = lastTime
-
-        // 1. Combo chain: cuts in early (early cancel), stays open a while after the move ends
-        if let cur = current,
-           now >= cur.start + cur.move.cancelAt,
-           now <= cur.start + cur.move.lock + cur.move.window,
-           let next = MoveTable.chain(from: cur.move.name, trigger) {
-            lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> \(next.name)  (combo from \(cur.move.name))"
-            perform(next)
-            return
-        }
-        // 2. Busy with a move that can't chain: hold the input briefly instead of dropping it
-        if airborne, jump == nil {                       // mid-dive: hold the next input for the landing
-            if trigger != .down { buffered = (g, bufferedAt ?? now) }
-            return
-        }
-        if !airborne, now < actionUntil {
-            buffered = (g, bufferedAt ?? now)
-            return
-        }
-        // 3. Normal context lookup
-        guard let move = MoveTable.move(ctx, trigger) else {
-            lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> (nothing)"
-            return
-        }
-        lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> \(move.name)"
-        perform(move)
-    }
-
-    private func perform(_ move: Move) {
-        current = (move, lastTime)
-        buffered = nil
-        if move.lunge > 0 {
-            moveDir = CGVector(dx: hero.facingRight ? 1 : -1, dy: 0)
-            velocity = max(velocity, move.lunge)
-        }
-        brakeUntil = move.brake > 0 ? lastTime + move.brake : 0   // any new move cancels a skid / plant
-        if move.slam { jump = nil; vz = -slamVZ; falling = true }
-
-        if move.jumpHeight > 0 {
-            startJump(move)
-        } else if let anim = move.animation {
-            hero.speed = 1
-            hero.play(anim)
-            if !airborne { actionUntil = lastTime + move.lock; loco = nil }
-        } else if !airborne {
-            actionUntil = lastTime + move.lock     // animation-less move (e.g. pick up) still holds the hero
-        }
-    }
-
-    private func startJump(_ m: Move) {
-        airborne = true; falling = false; vz = 0
-        jump = (m.jumpHeight, m.jumpRise, m.jumpHang, m.jumpFall, 0)
-        hero.speed = 1
-        hero.play(m.animation ?? .jump)
-        loco = nil
-    }
-
-    /// Strong ease-in-out: ~0 at both ends, steep in the middle.
-    private func ease(_ t: CGFloat) -> CGFloat {
-        let p = JumpTuning.ease
-        let a = pow(t, p), b = pow(1 - t, p)
-        return a / (a + b)
-    }
-
-    private func stepHeight(_ dt: CGFloat, now: TimeInterval) {
-        guard airborne else { return }
-        if var j = jump {
-            j.t += dt
-            if j.t < j.rise {
-                hero.height = j.height * ease(j.t / j.rise)
-            } else if j.t < j.rise + j.hang {
-                // Hang: drifts a touch higher, then settles. The air-slam decision window.
-                let h = (j.t - j.rise) / j.hang
-                hero.height = j.height + 10 * sin(h * .pi)
-            } else {
-                if !falling { falling = true; hero.play(.fall) }
-                hero.height = j.height * (1 - ease(min(1, (j.t - j.rise - j.hang) / j.fall)))
-            }
-            jump = j
-            if j.t < j.rise + j.hang + j.fall { return }
-        } else {
-            vz -= gravity * dt
-            hero.height += vz * dt
-            if hero.height > 0 { return }
-        }
-        // Landed
-        let slammed = (jump == nil)
-        hero.height = 0
-        airborne = false; falling = false; vz = 0; jump = nil
-        if slammed {
-            // Cooldown with the combo chain open immediately (see MoveTable.slamLanding)
-            let m = MoveTable.slamLanding
-            hero.play(.slamLand)
-            current = (m, now)
-            actionUntil = now + m.lock
-            brakeUntil = now + m.lock - 0.05          // feet planted
-        } else {
-            hero.play(.land)
-            actionUntil = now + 0.15
-        }
-        loco = nil
-    }
-
     // MARK: Debug overlay
 
     /// Half the visible height in scene units. aspectFill crops the scene on wider screens, so size.height overshoots.
@@ -424,8 +303,7 @@ final class GameScene: SKScene {
             dot.position = c
             debugLayer.addChild(ring); debugLayer.addChild(dot)
         }
-        let state = airborne ? "air" : (loco.map { "\($0)" } ?? "action")
-        debugLabel.text = "\(state)  speed \(Int(velocity))  h \(Int(hero.height))  |  last: \(lastGesture)"
+        debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  |  last: \(hero.lastGesture)"
     }
 
     // MARK: Loop
@@ -433,51 +311,20 @@ final class GameScene: SKScene {
     override func update(_ currentTime: TimeInterval) {
         let dt = lastTime == 0 ? 0 : min(currentTime - lastTime, 1.0 / 20)
         lastTime = currentTime
-        let d = CGFloat(dt)
 
-        // Momentum locomotion
         input.update(dt: dt)
-        let braking = currentTime < brakeUntil
-        let intensity = braking ? 0 : input.intensity
-        let hasInput = intensity > 0
-        if hasInput { moveDir = input.direction }
-        let targetSpeed = intensity * runSpeed
-        if targetSpeed > velocity {
-            // Bigger / faster thumb drags reach full velocity sooner
-            velocity = min(targetSpeed, velocity + (baseAccel + input.dragSpeed * dragAccelGain) * d)
-        } else {
-            let decel = braking ? brakeDecel : hasInput ? steerDecel : (airborne ? airDecel : (velocity > runSpeed * 0.8 ? skidDecel : stopDecel))
-            velocity = max(targetSpeed, velocity - decel * d)
-        }
-        if velocity > 0 {
-            hero.position.x = min(max(hero.position.x + moveDir.dx * velocity * d,
-                                      level.minX + level.heroInset), level.maxX - level.heroInset)
-            hero.position.y = min(max(hero.position.y + moveDir.dy * velocity * d, laneMinY), groundHeight - 30)
-            hero.zPosition = 300 - hero.position.y
-        }
-        if hasInput, abs(input.direction.dx) > 0.25 { hero.facingRight = input.direction.dx > 0 }
-
-        // Locomotion animation (paused while an action plays)
-        stepHeight(d, now: currentTime)
-        if let b = buffered {
-            if currentTime - b.time > ComboTuning.buffer { buffered = nil }
-            else { buffered = nil; handle(b.gesture, bufferedAt: b.time) }
-        }
-        if !airborne, currentTime >= actionUntil {
-            let desired: Loco = velocity < 20 ? .idle : (velocity < runSpeed * 0.7 ? .walk : .run)
-            if desired != loco {
-                loco = desired
-                hero.speed = desired == .walk ? 0.6 : 1
-                hero.play(desired == .idle ? .idle : .run)
-            }
-        }
+        let intent = MoveIntent(direction: input.direction, intensity: input.intensity, dragSpeed: input.dragSpeed)
+        let bounds = WorldBounds(minX: level.minX + level.heroInset, maxX: level.maxX - level.heroInset,
+                                 minY: laneMinY, maxY: groundHeight - 30)
+        hero.update(now: currentTime, dt: dt, intent: intent, bounds: bounds)
+        for e in enemies { e.update(now: currentTime, dt: dt, intent: MoveIntent(), bounds: bounds) }
         updateDebug()
 
         // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps)
         let follow = min(1, CGFloat(dt) * 6)
-        let camTargetY = baseCamY + (hero.position.y - laneStartY) * verticalFollow
+        let camTargetY = baseCamY + (hero.rig.position.y - laneStartY) * verticalFollow
         let camMinX = level.minX + size.width / 2, camMaxX = max(camMinX, level.maxX - size.width / 2)
-        let camTargetX = min(max(hero.position.x, camMinX), camMaxX)
+        let camTargetX = min(max(hero.rig.position.x, camMinX), camMaxX)
         cam.position.x += (camTargetX - cam.position.x) * follow
         cam.position.y += (camTargetY - cam.position.y) * follow
 

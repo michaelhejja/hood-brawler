@@ -50,6 +50,7 @@ Next: hit detection, then dedicated animations for each move.
 - `HumanoidRig` (HumanoidRig.swift): owns the joints and every animation. One implementation for everyone.
 - `Skin` (Skin.swift): art for head / torso / legs / arms / weapon plus a `RigLayout` (joint positions). `HeroSkin`, `SkeletonSkin`.
   A new look = a new skin; it plays every animation automatically. Parts can be mixed across skins.
-- Next: `Fighter` (state, locomotion, height axis, move execution, combo chain, health) pulled out of `GameScene`,
-  and `Brain` (player input or AI) that feeds it gestures.
-- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree).
+- `Fighter` (Fighter.swift): all state and rules for one character (locomotion, height axis, move execution, combo chain,
+  input buffer, health). Brain-agnostic: `update(intent:)` each frame + `handle(gesture)`. `FighterStats` holds per-character numbers.
+- Next: `Brain` (player input or AI) that produces `MoveIntent` + gestures for a Fighter. Then hit detection.
+- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemy` (a skeleton fights through the same Fighter).
