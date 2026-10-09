@@ -1,7 +1,17 @@
 import SwiftUI
 import SpriteKit
 
+/// Per-level horizontal bounds. The world spans minX...maxX.
+/// The camera stops at the ends, so the hero walks toward the edge instead of staying centered.
+struct LevelConfig {
+    var minX: CGFloat = 0
+    var maxX: CGFloat = 4000
+    var heroInset: CGFloat = 40     // how close the hero's origin may get to either world edge
+}
+
 final class GameScene: SKScene {
+    var level = LevelConfig()
+
     let hero = CharacterNode()
 
     private let cam = SKCameraNode()
@@ -218,7 +228,8 @@ final class GameScene: SKScene {
             velocity = max(targetSpeed, velocity - decel * d)
         }
         if velocity > 0 {
-            hero.position.x += moveDir.dx * velocity * d
+            hero.position.x = min(max(hero.position.x + moveDir.dx * velocity * d,
+                                      level.minX + level.heroInset), level.maxX - level.heroInset)
             hero.position.y = min(max(hero.position.y + moveDir.dy * velocity * d, laneMinY), groundHeight - 30)
             hero.zPosition = 300 - hero.position.y
         }
@@ -238,7 +249,9 @@ final class GameScene: SKScene {
         // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps)
         let follow = min(1, CGFloat(dt) * 6)
         let camTargetY = baseCamY + (hero.position.y - laneStartY) * verticalFollow
-        cam.position.x += (hero.position.x - cam.position.x) * follow
+        let camMinX = level.minX + size.width / 2, camMaxX = max(camMinX, level.maxX - size.width / 2)
+        let camTargetX = min(max(hero.position.x, camMinX), camMaxX)
+        cam.position.x += (camTargetX - cam.position.x) * follow
         cam.position.y += (camTargetY - cam.position.y) * follow
 
         // Parallax: horizontal layers tile and wrap; vertical offset is a simple scaled shift
