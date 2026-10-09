@@ -29,6 +29,7 @@ Back-swipe while standing is intentionally unassigned: reserved for future speci
 - Input buffer: a gesture that arrives too early (or during an unchainable move) is held 0.25s, then fires.
 - Chains: punch -tap-> punch 2; ground smash after power dash / dash attack (swipe down).
 - Uppercut (swipe up) follows punch 2 and any strong attack (heavy attack, power dash), standing or running.
+- Air slam (swipe down in the air): dive pitched hard forward, both hands out, weapon leading. Landing has a 0.3s cooldown with the chain open from the first frame: forward -> power dash, up -> uppercut. Input mashed mid-dive is buffered and fires on landing.
 - Jumps use a strong ease-in-out height curve (`JumpTuning`): tension at the bottom and apex, fast in between.
 - Tuning lives in `ComboTuning` (Moves.swift). Chains are rows in `MoveTable.chains`.
 

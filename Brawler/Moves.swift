@@ -68,21 +68,28 @@ enum MoveTable {
         // Fully running
         (.running,  .tap,     Move(name: "dash attack",   animation: .jab,  lock: 0.3, lunge: 560)),
         (.running,  .up,      Move(name: "big jump",      lunge: 560, jumpHeight: 230, jumpRise: 0.24, jumpFall: 0.34, jumpHang: 0.2)),
-        (.running,  .forward, Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760)),
+        (.running,  .forward, powerDash),
         (.running,  .back,    Move(name: "skid stop",     animation: .land, lock: 0.3, brake: 0.3)), // (placeholder) land pose
 
         // In the air
-        (.airborne, .down,    Move(name: "air slam",      animation: .fall, slam: true)),
+        (.airborne, .down,    Move(name: "air slam",      animation: .slam, slam: true)),
     ]
 
     // Combo links: after `from` (by move name), `trigger` gives the next move. Input-driven: no hit required.
+    private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760)
+
     private static let uppercut = Move(name: "uppercut", jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26)   // (placeholder) jump pose
+
+    /// Landing from an air slam: a short recovery during which the combo chain is open from the first frame.
+    static let slamLanding = Move(name: "slam landing", animation: .slamLand, lock: 0.3, cancelAt: 0)
 
     private static let chains: [(from: String, trigger: Trigger, move: Move)] = [
         ("punch",      .tap,  Move(name: "punch 2",      animation: .jab,  lock: 0.28, lunge: 80)),
         ("punch 2",      .up,   uppercut),                       // standing-combo entry
         ("heavy attack", .up,   uppercut),                       // any strong attack ...
         ("power dash",   .up,   uppercut),                       // ... including after a full run
+        ("slam landing", .forward, powerDash),                   // juggle: slam, then straight back into a dash
+        ("slam landing", .up,   uppercut),                       // ... or launch them
         ("power dash", .down, Move(name: "ground smash", animation: .attack, lock: 0.6)),             // (placeholder) overhead slam
         ("dash attack", .down, Move(name: "ground smash", animation: .attack, lock: 0.6)),
     ]

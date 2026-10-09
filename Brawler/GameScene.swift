@@ -179,7 +179,7 @@ final class GameScene: SKScene {
         if ProcessInfo.processInfo.arguments.contains("-demo") { runDemo() }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
-            run(.sequence([.wait(forDuration: 1), .run { [weak self] in self?.hero.speed = 0.08; self?.hero.play(a) }]))   // slow-mo
+            run(.sequence([.wait(forDuration: 1), .run { [weak self] in if a == .slam { self?.hero.height = 150 }; self?.hero.speed = 0.08; self?.hero.play(a) }]))   // slow-mo
         }
     }
 
@@ -249,6 +249,13 @@ final class GameScene: SKScene {
             release, .wait(forDuration: 1.2),
             fire(.swipe(.right)), .wait(forDuration: 0.2),             // standing heavy attack ...
             fire(.swipe(.up)), .wait(forDuration: 1.2),                // ... uppercut (new)
+            release, .wait(forDuration: 1.2),
+            fire(.swipe(.up)), .wait(forDuration: 0.3),                // jump, into the hang
+            fire(.swipe(.down)), .wait(forDuration: 0.3),              // air slam; lands during this wait
+            fire(.swipe(.right)), .wait(forDuration: 1.2),             // forward in the cooldown -> power dash
+            fire(.swipe(.up)), .wait(forDuration: 0.3),
+            fire(.swipe(.down)), .wait(forDuration: 0.03),             // slam ...
+            fire(.swipe(.right)), .wait(forDuration: 1.2),             // ... forward mashed mid-dive: buffered, chains on landing
             release, .wait(forDuration: 1)
         ]))
     }
@@ -277,6 +284,10 @@ final class GameScene: SKScene {
             return
         }
         // 2. Busy with a move that can't chain: hold the input briefly instead of dropping it
+        if airborne, jump == nil {                       // mid-dive: hold the next input for the landing
+            if trigger != .down { buffered = (g, bufferedAt ?? now) }
+            return
+        }
         if !airborne, now < actionUntil {
             buffered = (g, bufferedAt ?? now)
             return
@@ -297,7 +308,7 @@ final class GameScene: SKScene {
             moveDir = CGVector(dx: hero.facingRight ? 1 : -1, dy: 0)
             velocity = max(velocity, move.lunge)
         }
-        if move.brake > 0 { brakeUntil = lastTime + move.brake }
+        brakeUntil = move.brake > 0 ? lastTime + move.brake : 0   // any new move cancels a skid / plant
         if move.slam { jump = nil; vz = -slamVZ; falling = true }
 
         if move.jumpHeight > 0 {
@@ -348,10 +359,20 @@ final class GameScene: SKScene {
             if hero.height > 0 { return }
         }
         // Landed
+        let slammed = (jump == nil)
         hero.height = 0
         airborne = false; falling = false; vz = 0; jump = nil
-        hero.play(.land)
-        actionUntil = now + 0.15
+        if slammed {
+            // Cooldown with the combo chain open immediately (see MoveTable.slamLanding)
+            let m = MoveTable.slamLanding
+            hero.play(.slamLand)
+            current = (m, now)
+            actionUntil = now + m.lock
+            brakeUntil = now + m.lock - 0.05          // feet planted
+        } else {
+            hero.play(.land)
+            actionUntil = now + 0.15
+        }
         loco = nil
     }
 

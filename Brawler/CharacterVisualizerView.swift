@@ -19,6 +19,22 @@ final class CharacterVisualizerScene: SKScene {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The slam needs height: float up, hold the dive, drop, land.
+    func play(_ animation: CharacterAnimation) {
+        removeAction(forKey: "slam")
+        character.height = 0
+        guard animation == .slam else { character.play(animation); return }
+        character.height = 180
+        character.play(.slam)
+        let drop = SKAction.customAction(withDuration: 0.25) { [weak self] _, t in
+            self?.character.height = 180 * (1 - (t / 0.25) * (t / 0.25))
+        }
+        run(.sequence([.wait(forDuration: 0.7), drop,
+                       .run { [weak self] in self?.character.height = 0; self?.character.play(.slamLand) },
+                       .wait(forDuration: 0.9),
+                       .run { [weak self] in self?.character.play(.idle) }]), withKey: "slam")
+    }
+
     override func didChangeSize(_ oldSize: CGSize) { layout() }
 
     private func layout() {
@@ -51,11 +67,11 @@ struct CharacterVisualizerView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             ForEach(CharacterAnimation.showcase) { animation in
                 Button(animation.title) {
                     selected = animation
-                    scene.character.play(animation)
+                    scene.play(animation)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(selected == animation ? .orange : .gray)
@@ -64,7 +80,7 @@ struct CharacterVisualizerView: View {
             Button("Flip") { scene.character.facingRight.toggle() }
                 .buttonStyle(.bordered)
             Image(systemName: "tortoise")
-            Slider(value: $speed, in: 0.1...2).frame(width: 130)
+            Slider(value: $speed, in: 0.1...2).frame(width: 100)
             Image(systemName: "hare")
         }
         .padding(.horizontal, 20)

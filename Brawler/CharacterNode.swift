@@ -4,8 +4,9 @@ enum CharacterAnimation: String, CaseIterable, Identifiable {
     case idle, run, attack, leap, hit
     case jab, hook             // boxing pair: jab = tap (off hand), hook = forward swipe (weapon hand)
     case jump, fall, land      // driven by the scene's height physics, not shown in the lab
+    case slam, slamLand        // air-to-ground attack: the dive, then the impact
     var id: String { rawValue }
-    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .attack, .leap, .hit]
+    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .attack, .leap, .hit, .slam]
     var title: String { rawValue.capitalized }
 }
 
@@ -144,6 +145,8 @@ final class CharacterNode: SKNode {
         case .jump:   jump()
         case .fall:   fall()
         case .land:   land()
+        case .slam:   slam()
+        case .slamLand: slamLand()
         }
     }
 
@@ -274,6 +277,35 @@ final class CharacterNode: SKNode {
         track(sword, [(.pi, 0.1)])
     }
 
+    /// Air-to-ground dive: whole body pitched hard forward, both hands thrust out ahead,
+    /// weapon leading (blade extends straight along the arms). Rotation is clockwise-negative.
+    private func slam() {
+        track(body, [(-1.9, 0.1)])
+        track(armWeapon, [(2.9, 0.1)])
+        track(armOff, [(2.9, 0.1)])
+        track(sword, [(.pi, 0.08)])
+        track(legFront, [(0.5, 0.1)])
+        track(legBack, [(-0.3, 0.1)])
+        body.run(pose(y: restY, sx: 0.92, sy: 1.1, d: 0.1))
+        streaks()
+    }
+
+    /// Impact: deep crouch, weapon planted in the ground ahead, shockwave. Held through the landing cooldown.
+    private func slamLand() {
+        puff()
+        shockwave()
+        body.run(.sequence([
+            pose(y: restY * 0.7, sx: 1.25, sy: 0.7, d: 0.05),
+            pose(y: restY * 0.8, sx: 1.1, sy: 0.85, d: 0.2, .easeOut)
+        ]))
+        track(body, [(-0.45, 0.06)])
+        track(armWeapon, [(1.2, 0.06)])
+        track(armOff, [(1.0, 0.06)])
+        track(sword, [(.pi, 0.05)])
+        track(legFront, [(0.5, 0.06)])
+        track(legBack, [(-0.4, 0.06)])
+    }
+
     private func land() {
         puff()
         body.run(.sequence([
@@ -340,6 +372,30 @@ final class CharacterNode: SKNode {
         star.zPosition = 10
         addChild(star)
         star.run(.sequence([.group([.scale(to: 1.8, duration: 0.12), .fadeOut(withDuration: 0.12)]), .removeFromParent()]))
+    }
+
+    /// Speed lines above the diver.
+    private func streaks() {
+        for (x, y, len) in [(-34, 120, 70), (-8, 150, 90), (22, 125, 60)] as [(CGFloat, CGFloat, CGFloat)] {
+            let p = CGMutablePath()
+            p.move(to: .zero); p.addLine(to: CGPoint(x: 0, y: len))
+            let line = SKShapeNode(path: p)
+            line.strokeColor = .white; line.lineWidth = 5; line.lineCap = .round
+            line.position = CGPoint(x: x, y: y)
+            line.zPosition = -5
+            rig.addChild(line)
+            line.run(.sequence([.group([.moveBy(x: 0, y: 40, duration: 0.18), .fadeOut(withDuration: 0.18)]),
+                                .removeFromParent()]))
+        }
+    }
+
+    private func shockwave() {
+        let ring = styled(SKShapeNode(ellipseOf: CGSize(width: 60, height: 16)), .clear, line: 5)
+        ring.strokeColor = .white
+        ring.position = CGPoint(x: 0, y: 4)
+        ring.zPosition = -5
+        addChild(ring)
+        ring.run(.sequence([.group([.scale(to: 3.6, duration: 0.3), .fadeOut(withDuration: 0.3)]), .removeFromParent()]))
     }
 
     private func puff() {

@@ -10,7 +10,7 @@ struct BrawlerApp: App {
 enum Screen { case menu, lab, game }
 
 struct RootView: View {
-    @State private var screen: Screen = ProcessInfo.processInfo.arguments.contains("-game") ? .game : .menu
+    @State private var screen: Screen = ProcessInfo.processInfo.arguments.contains("-game") ? .game : (ProcessInfo.processInfo.arguments.contains("-lab") ? .lab : .menu)
 
     var body: some View {
         ZStack {
