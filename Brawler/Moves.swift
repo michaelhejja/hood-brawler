@@ -49,15 +49,15 @@ enum MoveTable {
     // Animations marked (placeholder) reuse existing poses until dedicated ones exist.
     private static let rows: [(MoveContext, Trigger, Move)] = [
         // Standing / slow walk
-        (.grounded, .tap,     Move(name: "punch",         animation: .attack, lock: 0.35)),
+        (.grounded, .tap,     Move(name: "punch",         animation: .jab,  lock: 0.28)),
         (.grounded, .up,      Move(name: "small jump",    jumpVZ: 800)),
         (.grounded, .down,    Move(name: "pick up",       lock: 0.3)),                          // (placeholder) no item system yet
-        (.grounded, .forward, Move(name: "heavy attack",  animation: .attack, lock: 0.5, lunge: 140)),
+        (.grounded, .forward, Move(name: "heavy attack",  animation: .hook, lock: 0.5, lunge: 140)),
 
         // Fully running
-        (.running,  .tap,     Move(name: "dash attack",   animation: .attack, lock: 0.4, lunge: 560)),
+        (.running,  .tap,     Move(name: "dash attack",   animation: .jab,  lock: 0.3, lunge: 560)),
         (.running,  .up,      Move(name: "big jump",      lunge: 560, jumpVZ: 950)),
-        (.running,  .forward, Move(name: "power dash",    animation: .attack, lock: 0.5, lunge: 760)),
+        (.running,  .forward, Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760)),
         (.running,  .back,    Move(name: "skid stop",     animation: .land, lock: 0.3, brake: 0.3)), // (placeholder) land pose
 
         // In the air
@@ -66,7 +66,7 @@ enum MoveTable {
 
     // Combo links: after `from` (by move name), `trigger` gives the next move. Input-driven: no hit required.
     private static let chains: [(from: String, trigger: Trigger, move: Move)] = [
-        ("punch",      .tap,  Move(name: "punch 2",      animation: .attack, lock: 0.35, lunge: 80)),
+        ("punch",      .tap,  Move(name: "punch 2",      animation: .jab,  lock: 0.28, lunge: 80)),
         ("punch 2",    .up,   Move(name: "uppercut",     jumpVZ: 1000)),                              // (placeholder) jump pose
         ("power dash", .down, Move(name: "ground smash", animation: .attack, lock: 0.6)),             // (placeholder) overhead slam
         ("dash attack", .down, Move(name: "ground smash", animation: .attack, lock: 0.6)),

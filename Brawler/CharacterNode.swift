@@ -2,9 +2,10 @@ import SpriteKit
 
 enum CharacterAnimation: String, CaseIterable, Identifiable {
     case idle, run, attack, leap, hit
+    case jab, hook             // boxing pair: jab = tap (off hand), hook = forward swipe (weapon hand)
     case jump, fall, land      // driven by the scene's height physics, not shown in the lab
     var id: String { rawValue }
-    static let showcase: [CharacterAnimation] = [.idle, .run, .attack, .leap, .hit]
+    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .attack, .leap, .hit]
     var title: String { rawValue.capitalized }
 }
 
@@ -120,6 +121,10 @@ final class CharacterNode: SKNode {
         sword.position = CGPoint(x: 0, y: -armLength)
         armFront.addChild(sword)
 
+        let fist = styled(SKShapeNode(circleOfRadius: 8), cloakDark)
+        fist.position = CGPoint(x: 0, y: -28)
+        armBack.addChild(fist)
+
         [legBack, legFront, armBack, torso, head, armFront].forEach(body.addChild)
         resetPose()
     }
@@ -132,6 +137,8 @@ final class CharacterNode: SKNode {
         case .idle:   idle()
         case .run:    run()
         case .attack: attack()
+        case .jab:    jab()
+        case .hook:   hook()
         case .leap:   leap()
         case .hit:    hit()
         case .jump:   jump()
@@ -151,6 +158,7 @@ final class CharacterNode: SKNode {
         body.zRotation = 0
         body.xScale = 1; body.yScale = 1
         legBack.zRotation = 0; legFront.zRotation = 0
+        armBack.zPosition = -1
         armBack.zRotation = 0; armFront.zRotation = armRest
         sword.zRotation = swordRest
         updateShadow()
@@ -187,6 +195,36 @@ final class CharacterNode: SKNode {
             returnToIdle
         ]))
         run(.sequence([.wait(forDuration: 0.12), .run { [weak self] in self?.spawnSlash() }]))
+    }
+
+    /// Tap: quick straight punch with the off hand (the one without the sword).
+    private func jab() {
+        armBack.zPosition = 4                       // bring the back arm in front of the torso
+        track(armBack, [(1.55, 0.06), (nil, 0.05), (0, 0.13)])
+        track(armFront, [(armRest - 0.2, 0.06), (nil, 0.05), (armRest, 0.13)])
+        body.run(.sequence([
+            pose(y: restY, x: 10, d: 0.06, .easeIn),
+            .wait(forDuration: 0.05),
+            pose(y: restY, d: 0.13),
+            returnToIdle
+        ]))
+        run(.sequence([.wait(forDuration: 0.06), .run { [weak self] in self?.pop(at: CGPoint(x: 50, y: 0)) }]))
+    }
+
+    /// Forward swipe: wide hooking swing with the weapon hand, committing the whole body.
+    private func hook() {
+        track(armFront, [(-0.9, 0.1), (1.7, 0.07), (nil, 0.1), (armRest, 0.2)])
+        track(armBack, [(0.5, 0.1), (-0.6, 0.07), (nil, 0.1), (0, 0.2)])
+        track(sword, [(2.5, 0.1), (3.0, 0.07), (nil, 0.1), (swordRest, 0.2)])
+        body.run(.sequence([
+            pose(y: restY, x: -12, d: 0.1),
+            pose(y: restY, x: 24, d: 0.07, .easeIn),
+            .wait(forDuration: 0.1),
+            pose(y: restY, d: 0.2),
+            returnToIdle
+        ]))
+        track(body, [(0.2, 0.1), (-0.25, 0.07), (nil, 0.1), (0, 0.2)])   // lean back, then throw the shoulder through
+        run(.sequence([.wait(forDuration: 0.1), .run { [weak self] in self?.spawnSlash(start: 1.0, end: -0.6, radius: 80, lift: 40) }]))
     }
 
     private func leap() {
@@ -284,16 +322,25 @@ final class CharacterNode: SKNode {
 
     // MARK: Effects
 
-    private func spawnSlash() {
+    private func spawnSlash(start: CGFloat = 2.0, end: CGFloat = -0.4, radius: CGFloat = 70, lift: CGFloat = 44) {
         let path = CGMutablePath()
-        path.addArc(center: .zero, radius: 70, startAngle: 2.0, endAngle: -0.4, clockwise: true)
+        path.addArc(center: .zero, radius: radius, startAngle: start, endAngle: end, clockwise: true)
         let fx = SKShapeNode(path: path)
         fx.strokeColor = .white; fx.lineWidth = 8; fx.lineCap = .round; fx.glowWidth = 3
-        fx.position = CGPoint(x: 17, y: restY + 44)
+        fx.position = CGPoint(x: 17, y: restY + lift)
         fx.zPosition = 10
         addChild(fx)
         fx.run(.sequence([.group([.fadeOut(withDuration: 0.18), .scale(to: 1.15, duration: 0.18)]),
                           .removeFromParent()]))
+    }
+
+    /// Small impact flash at the fist.
+    private func pop(at p: CGPoint) {
+        let star = styled(SKShapeNode(circleOfRadius: 9), .white, line: 3)
+        star.position = CGPoint(x: p.x, y: restY + 44)
+        star.zPosition = 10
+        addChild(star)
+        star.run(.sequence([.group([.scale(to: 1.8, duration: 0.12), .fadeOut(withDuration: 0.12)]), .removeFromParent()]))
     }
 
     private func puff() {

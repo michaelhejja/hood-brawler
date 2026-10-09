@@ -25,11 +25,11 @@ final class GameScene: SKScene {
 
     // Locomotion tuning (pt/s and pt/s²)
     private let runSpeed: CGFloat = 520
-    private let baseAccel: CGFloat = 500        // slow drag: ~1s to full velocity
-    private let dragAccelGain: CGFloat = 0.6    // + thumb velocity * gain: a fast flick: ~0.25s
-    private let steerDecel: CGFloat = 1200      // thumb still down but pushing less
-    private let stopDecel: CGFloat = 2600       // thumb lifted: quick stop
-    private let skidDecel: CGFloat = 1100       // thumb lifted at full run: small skid
+    private let baseAccel: CGFloat = 1500       // slow drag: ~0.35s to full speed
+    private let dragAccelGain: CGFloat = 1.2    // + thumb speed * gain: a fast flick: ~0.2s
+    private let steerDecel: CGFloat = 2400      // thumb still down but pushing less
+    private let stopDecel: CGFloat = 3600       // thumb lifted: quick stop
+    private let skidDecel: CGFloat = 1800       // thumb lifted at full run: small skid
 
     let input = InputController()
     private enum Loco { case idle, walk, run }
@@ -42,7 +42,7 @@ final class GameScene: SKScene {
     private let smallJumpVZ: CGFloat = 800      // apex ~133pt, ~0.67s in the air
     private let slamVZ: CGFloat = 1500
     private let airDecel: CGFloat = 250         // momentum carries through the air
-    private let brakeDecel: CGFloat = 2600
+    private let brakeDecel: CGFloat = 3600
     private var brakeUntil: TimeInterval = 0
     private var current: (move: Move, start: TimeInterval)?
     private var buffered: (gesture: Gesture, time: TimeInterval)?

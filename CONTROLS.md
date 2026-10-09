@@ -13,7 +13,7 @@ Swipes fire the moment they pass the distance threshold, taps on release.
 
 | Context        | Tap          | Up                  | Down             | Forward              | Back        |
 |----------------|--------------|---------------------|------------------|----------------------|-------------|
-| Standing/walk  | small punch  | small jump          | pick up item     | big/weapon attack    | (open)      |
+| Standing/walk  | jab (off hand)  | small jump          | pick up item     | hook (weapon hand)    | (open)      |
 | Running        | dash attack  | big forward jump    | -                | strong dash attack   | skid stop   |
 | Airborne       | -            | -                   | air-to-ground    | -                    | -           |
 
