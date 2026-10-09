@@ -1,5 +1,6 @@
 import SwiftUI
 import SpriteKit
+import GameController
 
 /// Per-level horizontal bounds. The world spans minX...maxX.
 /// The camera stops at the ends, so the hero walks toward the edge instead of staying centered.
@@ -174,7 +175,38 @@ final class GameScene: SKScene {
 
     override func didMove(to view: SKView) {
         view.isMultipleTouchEnabled = true
+        setupKeyboard()
         if ProcessInfo.processInfo.arguments.contains("-demo") { runDemo() }
+    }
+
+    /// Hardware keyboard (Mac keyboard in the simulator). No view focus needed.
+    /// WASD = move (Shift = run), arrow keys = swipes, Space = tap.
+    private func setupKeyboard() {
+        func attach(_ kb: GCKeyboard) {
+            kb.keyboardInput?.keyChangedHandler = { [weak self] pad, _, code, down in
+                guard let self else { return }
+                let shift = (pad.button(forKeyCode: .leftShift)?.isPressed ?? false)
+                    || (pad.button(forKeyCode: .rightShift)?.isPressed ?? false)
+                let letters: [GCKeyCode: Character] = [.keyW: "w", .keyA: "a", .keyS: "s", .keyD: "d"]
+                if let ch = letters[code] {
+                    if down { self.input.keyDown(ch, run: shift) } else { self.input.keyUp(ch) }
+                    return
+                }
+                guard down else { return }
+                switch code {
+                case .upArrow:    self.input.fire(.swipe(.up))
+                case .downArrow:  self.input.fire(.swipe(.down))
+                case .leftArrow:  self.input.fire(.swipe(.left))
+                case .rightArrow: self.input.fire(.swipe(.right))
+                case .spacebar:   self.input.fire(.tap)
+                default: break
+                }
+            }
+        }
+        if let kb = GCKeyboard.coalesced { attach(kb) }
+        NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
+            if let kb = n.object as? GCKeyboard { attach(kb) }
+        }
     }
 
     /// Launch with `-demo` to play a scripted input sequence (no touch needed). Exercises every move-table context.
@@ -389,25 +421,6 @@ struct GameView: View {
     var body: some View {
         SpriteView(scene: scene, debugOptions: [.showsFPS, .showsNodeCount])
             .ignoresSafeArea()
-            // Simulator keyboard backend: WASD move (Shift = run), arrows = swipes, Space = tap
-            .focusable()
-            .focusEffectDisabled()
-            .onKeyPress(phases: [.down, .up]) { press in
-                let input = scene.input
-                let ch = press.characters.lowercased().first
-                switch (press.key, press.phase) {
-                case (.upArrow, .down):    input.fire(.swipe(.up))
-                case (.downArrow, .down):  input.fire(.swipe(.down))
-                case (.leftArrow, .down):  input.fire(.swipe(.left))
-                case (.rightArrow, .down): input.fire(.swipe(.right))
-                case (.space, .down):      input.fire(.tap)
-                default:
-                    guard let ch, "wasd".contains(ch) else { return .ignored }
-                    if press.phase == .down { input.keyDown(ch, run: press.modifiers.contains(.shift)) }
-                    else { input.keyUp(ch) }
-                }
-                return .handled
-            }
             .overlay(alignment: .topLeading) {
                 Button(action: onBack) { Label("Menu", systemImage: "chevron.left") }
                     .buttonStyle(.borderedProminent)
