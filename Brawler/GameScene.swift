@@ -39,7 +39,6 @@ final class GameScene: SKScene {
     private var actionUntil: TimeInterval = 0
     // Height axis (pt, pt/s, pt/s²). Height is separate from the lane position, so jumping never moves him in depth.
     private let gravity: CGFloat = 2400
-    private let smallJumpVZ: CGFloat = 800      // apex ~133pt, ~0.67s in the air
     private let slamVZ: CGFloat = 1500
     private let airDecel: CGFloat = 250         // momentum carries through the air
     private let brakeDecel: CGFloat = 3600
@@ -47,6 +46,7 @@ final class GameScene: SKScene {
     private var current: (move: Move, start: TimeInterval)?
     private var buffered: (gesture: Gesture, time: TimeInterval)?
     private var vz: CGFloat = 0
+    private var jump: (height: CGFloat, rise: CGFloat, fall: CGFloat, t: CGFloat)?   // nil = physics (slam)
     private var airborne = false
     private var falling = false
     private var lastGesture = "-" { didSet { NSLog("MOVE %@", lastGesture) } }
@@ -177,6 +177,10 @@ final class GameScene: SKScene {
         view.isMultipleTouchEnabled = true
         setupKeyboard()
         if ProcessInfo.processInfo.arguments.contains("-demo") { runDemo() }
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
+            run(.sequence([.wait(forDuration: 1), .run { [weak self] in self?.hero.speed = 0.08; self?.hero.play(a) }]))   // slow-mo
+        }
     }
 
     /// Hardware keyboard (Mac keyboard in the simulator). No view focus needed.
@@ -240,6 +244,11 @@ final class GameScene: SKScene {
             hold(run: true), .wait(forDuration: 1.8),
             fire(.swipe(.right)), .wait(forDuration: 0.2),             // COMBO: power dash ...
             fire(.swipe(.down)), .wait(forDuration: 1.2),              // ... ground smash
+            fire(.swipe(.right)), .wait(forDuration: 0.2),             // running power dash ...
+            fire(.swipe(.up)), .wait(forDuration: 1.2),                // ... uppercut (new)
+            release, .wait(forDuration: 1.2),
+            fire(.swipe(.right)), .wait(forDuration: 0.2),             // standing heavy attack ...
+            fire(.swipe(.up)), .wait(forDuration: 1.2),                // ... uppercut (new)
             release, .wait(forDuration: 1)
         ]))
     }
@@ -289,10 +298,10 @@ final class GameScene: SKScene {
             velocity = max(velocity, move.lunge)
         }
         if move.brake > 0 { brakeUntil = lastTime + move.brake }
-        if move.slam { vz = -slamVZ; falling = true }
+        if move.slam { jump = nil; vz = -slamVZ; falling = true }
 
-        if move.jumpVZ > 0 {
-            startJump(vz: move.jumpVZ)
+        if move.jumpHeight > 0 {
+            startJump(move)
         } else if let anim = move.animation {
             hero.speed = 1
             hero.play(anim)
@@ -302,25 +311,44 @@ final class GameScene: SKScene {
         }
     }
 
-    private func startJump(vz v: CGFloat) {
-        airborne = true; falling = false; vz = v
+    private func startJump(_ m: Move) {
+        airborne = true; falling = false; vz = 0
+        jump = (m.jumpHeight, m.jumpRise, m.jumpFall, 0)
         hero.speed = 1
         hero.play(.jump)
         loco = nil
     }
 
+    /// Strong ease-in-out: ~0 at both ends, steep in the middle.
+    private func ease(_ t: CGFloat) -> CGFloat {
+        let p = JumpTuning.ease
+        let a = pow(t, p), b = pow(1 - t, p)
+        return a / (a + b)
+    }
+
     private func stepHeight(_ dt: CGFloat, now: TimeInterval) {
         guard airborne else { return }
-        vz -= gravity * dt
-        hero.height += vz * dt
-        if vz < 0, !falling { falling = true; hero.play(.fall) }
-        if hero.height <= 0 {
-            hero.height = 0
-            airborne = false; falling = false; vz = 0
-            hero.play(.land)
-            actionUntil = now + 0.15
-            loco = nil
+        if var j = jump {
+            j.t += dt
+            if j.t < j.rise {
+                hero.height = j.height * ease(j.t / j.rise)
+            } else {
+                if !falling { falling = true; hero.play(.fall) }
+                hero.height = j.height * (1 - ease(min(1, (j.t - j.rise) / j.fall)))
+            }
+            jump = j
+            if j.t < j.rise + j.fall { return }
+        } else {
+            vz -= gravity * dt
+            hero.height += vz * dt
+            if hero.height > 0 { return }
         }
+        // Landed
+        hero.height = 0
+        airborne = false; falling = false; vz = 0; jump = nil
+        hero.play(.land)
+        actionUntil = now + 0.15
+        loco = nil
     }
 
     // MARK: Debug overlay

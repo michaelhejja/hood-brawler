@@ -158,7 +158,7 @@ final class CharacterNode: SKNode {
         body.zRotation = 0
         body.xScale = 1; body.yScale = 1
         legBack.zRotation = 0; legFront.zRotation = 0
-        armBack.zPosition = -1
+        armBack.position = CGPoint(x: -16, y: 44)
         armBack.zRotation = 0; armFront.zRotation = armRest
         sword.zRotation = swordRest
         updateShadow()
@@ -199,7 +199,9 @@ final class CharacterNode: SKNode {
 
     /// Tap: quick straight punch with the off hand (the one without the sword).
     private func jab() {
-        armBack.zPosition = 4                       // bring the back arm in front of the torso
+        // The back arm stays BEHIND the torso. The shoulder slides forward so the fist clears the chest.
+        armBack.run(.sequence([.move(to: CGPoint(x: 8, y: 46), duration: 0.06), .wait(forDuration: 0.05),
+                               .move(to: CGPoint(x: -16, y: 44), duration: 0.13)]))
         track(armBack, [(1.55, 0.06), (nil, 0.05), (0, 0.13)])
         track(armFront, [(armRest - 0.2, 0.06), (nil, 0.05), (armRest, 0.13)])
         body.run(.sequence([

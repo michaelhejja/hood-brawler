@@ -27,7 +27,9 @@ Back-swipe while standing is intentionally unassigned: reserved for future speci
 - Early cancel: a chained move may cut in 0.12s after the previous move starts.
 - Chain window: stays open 0.4s after the previous move's lock ends.
 - Input buffer: a gesture that arrives too early (or during an unchainable move) is held 0.25s, then fires.
-- Chains: punch -tap-> punch 2 -up-> uppercut; power dash / dash attack -down-> ground smash.
+- Chains: punch -tap-> punch 2; ground smash after power dash / dash attack (swipe down).
+- Uppercut (swipe up) follows punch 2 and any strong attack (heavy attack, power dash), standing or running.
+- Jumps use a strong ease-in-out height curve (`JumpTuning`): tension at the bottom and apex, fast in between.
 - Tuning lives in `ComboTuning` (Moves.swift). Chains are rows in `MoveTable.chains`.
 
 ## Simulator keyboard backend
