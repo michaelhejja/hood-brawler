@@ -6,9 +6,12 @@ final class GameScene: SKScene {
 
     private let cam = SKCameraNode()
     private let groundHeight: CGFloat = 250
-    private let laneMinY: CGFloat = 30
+    private let laneMinY: CGFloat = -100      // can walk below the original ground line
+    private let laneStartY: CGFloat = 120
+    private let verticalFollow: CGFloat = 0.7 // how much of the hero's vertical travel the camera follows
     private let moveSpeed: CGFloat = 320
-    private var layers: [(node: SKNode, factor: CGFloat, tileW: CGFloat)] = []
+    private var baseCamY: CGFloat { size.height / 2 }
+    private var layers: [(node: SKNode, fx: CGFloat, fy: CGFloat, tileW: CGFloat)] = []
     private var target: CGPoint?
     private var isMoving = false
     private var lastTime: TimeInterval = 0
@@ -57,7 +60,7 @@ final class GameScene: SKScene {
             let t = SKNode()
             for (x, s) in [(120, 1.0), (390, 1.4)] as [(CGFloat, CGFloat)] {
                 let tree = self.pine()
-                tree.position = CGPoint(x: x, y: self.groundHeight - 10)
+                tree.position = CGPoint(x: x, y: self.groundHeight - 50)   // sunk so vertical parallax never exposes a gap
                 tree.setScale(s)
                 t.addChild(tree)
             }
@@ -68,7 +71,8 @@ final class GameScene: SKScene {
             let t = SKNode()
             for (i, c) in [SKColor(red: 0.20, green: 0.50, blue: 0.48, alpha: 1),
                            SKColor(red: 0.23, green: 0.55, blue: 0.52, alpha: 1)].enumerated() {
-                let r = SKShapeNode(rect: CGRect(x: CGFloat(i) * 200, y: 0, width: 200, height: self.groundHeight))
+                // Extends well below the lane so there's no gap when the camera follows the hero down
+                let r = SKShapeNode(rect: CGRect(x: CGFloat(i) * 200, y: -600, width: 200, height: self.groundHeight + 600))
                 r.fillColor = c
                 r.strokeColor = .clear
                 t.addChild(r)
@@ -100,7 +104,10 @@ final class GameScene: SKScene {
     }
 
     /// Tiles must be identical (period = tileW) so they loop seamlessly.
-    private func addLayer(factor: CGFloat, tileW: CGFloat, z: CGFloat, tile: () -> SKNode) {
+    /// fx / fy: 1 = moves with the world (foreground), 0 = pinned to the screen (infinitely far).
+    /// fy defaults to fx; set it separately for levels that scroll mostly vertically (e.g. a mountain climb).
+    private func addLayer(factor fx: CGFloat, factorY fy: CGFloat? = nil, tileW: CGFloat, z: CGFloat,
+                          tile: () -> SKNode) {
         let layer = SKNode()
         layer.zPosition = z
         for i in 0..<(Int(ceil(size.width / tileW)) + 2) {
@@ -109,7 +116,7 @@ final class GameScene: SKScene {
             layer.addChild(t)
         }
         addChild(layer)
-        layers.append((layer, factor, tileW))
+        layers.append((layer, fx, fy ?? fx, tileW))
     }
 
     // MARK: Placeholder input (TEMP: drag to walk; real touch controls come next)
@@ -148,15 +155,18 @@ final class GameScene: SKScene {
             hero.play(moving ? .run : .idle)
         }
 
-        // Camera follows the hero horizontally
+        // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps)
         let follow = min(1, CGFloat(dt) * 6)
+        let camTargetY = baseCamY + (hero.position.y - laneStartY) * verticalFollow
         cam.position.x += (hero.position.x - cam.position.x) * follow
+        cam.position.y += (camTargetY - cam.position.y) * follow
 
-        // Parallax
+        // Parallax: horizontal layers tile and wrap; vertical offset is a simple scaled shift
         for l in layers {
-            var m = (cam.position.x * l.factor).truncatingRemainder(dividingBy: l.tileW)
+            var m = (cam.position.x * l.fx).truncatingRemainder(dividingBy: l.tileW)
             if m < 0 { m += l.tileW }
             l.node.position.x = cam.position.x - size.width / 2 - m
+            l.node.position.y = (cam.position.y - baseCamY) * (1 - l.fy)
         }
     }
 }
