@@ -43,6 +43,8 @@ final class GameScene: SKScene {
     private let airDecel: CGFloat = 250         // momentum carries through the air
     private let brakeDecel: CGFloat = 2600
     private var brakeUntil: TimeInterval = 0
+    private var current: (move: Move, start: TimeInterval)?
+    private var buffered: (gesture: Gesture, time: TimeInterval)?
     private var vz: CGFloat = 0
     private var airborne = false
     private var falling = false
@@ -61,6 +63,7 @@ final class GameScene: SKScene {
         buildWorld()
 
         hero.scaleFactor = 1.3
+        hero.returnsToIdle = false
         hero.position = CGPoint(x: size.width / 2, y: 120)
         addChild(hero)
 
@@ -193,6 +196,18 @@ final class GameScene: SKScene {
             fire(.swipe(.down)), .wait(forDuration: 1.0),              // air slam
             hold(run: true), .wait(forDuration: 1.8),
             fire(.swipe(.left)), .wait(forDuration: 0.6),              // running back: skid
+            release, .wait(forDuration: 1.2),                          // stand still before the combo tests
+            fire(.tap), .wait(forDuration: 0.2),                       // COMBO: punch ...
+            fire(.tap), .wait(forDuration: 0.2),                       // ... punch 2 ...
+            fire(.swipe(.up)), .wait(forDuration: 0.3),                // ... uppercut ...
+            fire(.swipe(.down)), .wait(forDuration: 1.2),              // ... air slam (airborne)
+            fire(.tap), .wait(forDuration: 0.05),                      // EARLY: arrives before the cancel point ...
+            fire(.tap), .wait(forDuration: 1.0),                       // ... buffered, fires as punch 2
+            fire(.tap), .wait(forDuration: 0.9),                       // EXPIRED: window closes before the next tap ...
+            fire(.tap), .wait(forDuration: 1.0),                       // ... so this is a fresh punch, not punch 2
+            hold(run: true), .wait(forDuration: 1.8),
+            fire(.swipe(.right)), .wait(forDuration: 0.2),             // COMBO: power dash ...
+            fire(.swipe(.down)), .wait(forDuration: 1.2),              // ... ground smash
             release, .wait(forDuration: 1)
         ]))
     }
@@ -206,9 +221,26 @@ final class GameScene: SKScene {
         airborne ? .airborne : (velocity > runSpeed * 0.7 ? .running : .grounded)
     }
 
-    private func handle(_ g: Gesture) {
+    private func handle(_ g: Gesture, bufferedAt: TimeInterval? = nil) {
         let trigger = Trigger(g, facingRight: hero.facingRight)
         let ctx = context
+        let now = lastTime
+
+        // 1. Combo chain: cuts in early (early cancel), stays open a while after the move ends
+        if let cur = current,
+           now >= cur.start + cur.move.cancelAt,
+           now <= cur.start + cur.move.lock + cur.move.window,
+           let next = MoveTable.chain(from: cur.move.name, trigger) {
+            lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> \(next.name)  (combo from \(cur.move.name))"
+            perform(next)
+            return
+        }
+        // 2. Busy with a move that can't chain: hold the input briefly instead of dropping it
+        if !airborne, now < actionUntil {
+            buffered = (g, bufferedAt ?? now)
+            return
+        }
+        // 3. Normal context lookup
         guard let move = MoveTable.move(ctx, trigger) else {
             lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> (nothing)"
             return
@@ -218,6 +250,8 @@ final class GameScene: SKScene {
     }
 
     private func perform(_ move: Move) {
+        current = (move, lastTime)
+        buffered = nil
         if move.lunge > 0 {
             moveDir = CGVector(dx: hero.facingRight ? 1 : -1, dy: 0)
             velocity = max(velocity, move.lunge)
@@ -316,6 +350,10 @@ final class GameScene: SKScene {
 
         // Locomotion animation (paused while an action plays)
         stepHeight(d, now: currentTime)
+        if let b = buffered {
+            if currentTime - b.time > ComboTuning.buffer { buffered = nil }
+            else { buffered = nil; handle(b.gesture, bufferedAt: b.time) }
+        }
         if !airborne, currentTime >= actionUntil {
             let desired: Loco = velocity < 20 ? .idle : (velocity < runSpeed * 0.7 ? .walk : .run)
             if desired != loco {

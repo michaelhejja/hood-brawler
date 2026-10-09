@@ -1,6 +1,13 @@
 import Foundation
 import CoreGraphics
 
+/// Combo timing. Start generous, tighten after playtesting.
+enum ComboTuning {
+    static let cancelAt: TimeInterval = 0.12   // a chained move may cut in this long after the previous one starts
+    static let window: TimeInterval = 0.4      // chain stays open this long after the previous move's lock ends
+    static let buffer: TimeInterval = 0.25     // early/unchainable input is held this long, then fires when free
+}
+
 /// A gesture normalised to the hero's facing: swipes become forward / back.
 enum Trigger: String, Hashable {
     case tap, up, down, forward, back
@@ -31,6 +38,8 @@ struct Move {
     var jumpVZ: CGFloat = 0          // > 0 launches into the air
     var slam = false                 // dive to the ground
     var brake: TimeInterval = 0      // > 0 forces a hard stop for this long (skid)
+    var cancelAt = ComboTuning.cancelAt
+    var window = ComboTuning.window
 }
 
 enum MoveTable {
@@ -54,6 +63,20 @@ enum MoveTable {
         // In the air
         (.airborne, .down,    Move(name: "air slam",      animation: .fall, slam: true)),
     ]
+
+    // Combo links: after `from` (by move name), `trigger` gives the next move. Input-driven: no hit required.
+    private static let chains: [(from: String, trigger: Trigger, move: Move)] = [
+        ("punch",      .tap,  Move(name: "punch 2",      animation: .attack, lock: 0.35, lunge: 80)),
+        ("punch 2",    .up,   Move(name: "uppercut",     jumpVZ: 1000)),                              // (placeholder) jump pose
+        ("power dash", .down, Move(name: "ground smash", animation: .attack, lock: 0.6)),             // (placeholder) overhead slam
+        ("dash attack", .down, Move(name: "ground smash", animation: .attack, lock: 0.6)),
+    ]
+    private static let chainTable: [String: Move] = Dictionary(
+        uniqueKeysWithValues: chains.map { ("\($0.from)|\($0.trigger.rawValue)", $0.move) })
+
+    static func chain(from name: String, _ trigger: Trigger) -> Move? {
+        chainTable["\(name)|\(trigger.rawValue)"]
+    }
 
     private static let table: [Key: Move] = Dictionary(
         uniqueKeysWithValues: rows.map { (Key(context: $0.0, trigger: $0.1), $0.2) })

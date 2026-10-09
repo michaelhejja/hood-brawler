@@ -259,7 +259,9 @@ final class CharacterNode: SKNode {
 
     // MARK: Action helpers
 
-    private var returnToIdle: SKAction { .run { [weak self] in self?.play(.idle) } }
+    /// The game scene drives locomotion itself, so it turns this off.
+    var returnsToIdle = true
+    private var returnToIdle: SKAction { .run { [weak self] in if let self, self.returnsToIdle { self.play(.idle) } } }
 
     private func pose(y: CGFloat, x: CGFloat = 0, sx: CGFloat = 1, sy: CGFloat = 1,
                       d: TimeInterval, _ mode: SKActionTimingMode = .easeInEaseOut) -> SKAction {
