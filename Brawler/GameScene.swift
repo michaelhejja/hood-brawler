@@ -41,6 +41,8 @@ final class GameScene: SKScene {
     private let smallJumpVZ: CGFloat = 800      // apex ~133pt, ~0.67s in the air
     private let slamVZ: CGFloat = 1500
     private let airDecel: CGFloat = 250         // momentum carries through the air
+    private let brakeDecel: CGFloat = 2600
+    private var brakeUntil: TimeInterval = 0
     private var vz: CGFloat = 0
     private var airborne = false
     private var falling = false
@@ -174,32 +176,39 @@ final class GameScene: SKScene {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.ended(touches, in: v) } }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { input.cancelled(touches) }
 
-    /// Placeholder mapping until the move table exists.
-    private func handle(_ g: Gesture) {
-        let forward: SwipeDirection = hero.facingRight ? .right : .left
-        switch g {
-        case .swipe(.up):
-            lastGesture = "swipe up"
-            if !airborne { startJump(vz: smallJumpVZ) }
-        case .swipe(.down):
-            lastGesture = "swipe down"
-            if airborne { vz = -slamVZ; falling = true; hero.play(.fall) }
-        case .tap:
-            lastGesture = "tap"
-            if !airborne { attack() }
-        case .swipe(let d) where d == forward:
-            lastGesture = "swipe forward"
-            if !airborne { attack() }
-        case .swipe:
-            lastGesture = "swipe back (open)"
-        }
+    /// What the hero can do right now. Running = grounded and fast.
+    private var context: MoveContext {
+        airborne ? .airborne : (velocity > runSpeed * 0.7 ? .running : .grounded)
     }
 
-    private func attack() {
-        hero.speed = 1
-        hero.play(.attack)
-        actionUntil = lastTime + 0.5
-        loco = nil
+    private func handle(_ g: Gesture) {
+        let trigger = Trigger(g, facingRight: hero.facingRight)
+        let ctx = context
+        guard let move = MoveTable.move(ctx, trigger) else {
+            lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> (nothing)"
+            return
+        }
+        lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> \(move.name)"
+        perform(move)
+    }
+
+    private func perform(_ move: Move) {
+        if move.lunge > 0 {
+            moveDir = CGVector(dx: hero.facingRight ? 1 : -1, dy: 0)
+            velocity = max(velocity, move.lunge)
+        }
+        if move.brake > 0 { brakeUntil = lastTime + move.brake }
+        if move.slam { vz = -slamVZ; falling = true }
+
+        if move.jumpVZ > 0 {
+            startJump(vz: move.jumpVZ)
+        } else if let anim = move.animation {
+            hero.speed = 1
+            hero.play(anim)
+            if !airborne { actionUntil = lastTime + move.lock; loco = nil }
+        } else if !airborne {
+            actionUntil = lastTime + move.lock     // animation-less move (e.g. pick up) still holds the hero
+        }
     }
 
     private func startJump(vz v: CGFloat) {
@@ -252,7 +261,8 @@ final class GameScene: SKScene {
 
         // Momentum locomotion
         input.update(dt: dt)
-        let intensity = input.intensity
+        let braking = currentTime < brakeUntil
+        let intensity = braking ? 0 : input.intensity
         let hasInput = intensity > 0
         if hasInput { moveDir = input.direction }
         let targetSpeed = intensity * runSpeed
@@ -260,7 +270,7 @@ final class GameScene: SKScene {
             // Bigger / faster thumb drags reach full velocity sooner
             velocity = min(targetSpeed, velocity + (baseAccel + input.dragSpeed * dragAccelGain) * d)
         } else {
-            let decel = hasInput ? steerDecel : (airborne ? airDecel : (velocity > runSpeed * 0.8 ? skidDecel : stopDecel))
+            let decel = braking ? brakeDecel : hasInput ? steerDecel : (airborne ? airDecel : (velocity > runSpeed * 0.8 ? skidDecel : stopDecel))
             velocity = max(targetSpeed, velocity - decel * d)
         }
         if velocity > 0 {

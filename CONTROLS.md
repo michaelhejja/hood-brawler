@@ -29,4 +29,6 @@ and the locomotion constants at the top of `GameScene.swift`.
 
 ## Status
 Done: input layer, momentum locomotion, debug overlay, keyboard backend.
-Placeholder: gesture -> animation mapping. Next: move table, combo buffer, height axis, hit detection.
+Done: height axis, move table (`Moves.swift`, one row per move).
+Placeholder animations: pick up (none), skid stop (reuses landing pose), weapon attack (no weapon system yet).
+Next: combo buffer + chain windows, hit detection.
