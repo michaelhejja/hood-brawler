@@ -12,49 +12,29 @@ enum CharacterAnimation: String, CaseIterable, Identifiable {
     var title: String { rawValue.capitalized }
 }
 
-// MARK: - Shape helpers (swap for sprites later)
+// MARK: - Rig
 
-let ink = SKColor(red: 0.08, green: 0.06, blue: 0.12, alpha: 1)
-private let cloak = SKColor(red: 0.36, green: 0.28, blue: 0.50, alpha: 1)
-private let cloakDark = SKColor(red: 0.24, green: 0.18, blue: 0.36, alpha: 1)
-
-@discardableResult
-func styled(_ s: SKShapeNode, _ fill: SKColor, line: CGFloat = 4) -> SKShapeNode {
-    s.fillColor = fill
-    s.strokeColor = line > 0 ? ink : .clear
-    s.lineWidth = line
-    s.lineJoin = .round
-    s.lineCap = .round
-    return s
-}
-
-/// A limb hanging down from its joint (node origin = joint).
-private func limb(width: CGFloat, height: CGFloat, fill: SKColor) -> SKShapeNode {
-    styled(SKShapeNode(rect: CGRect(x: -width / 2, y: -height, width: width, height: height),
-                       cornerRadius: width / 2), fill)
-}
-
-// MARK: - Character
-
+/// Owns the joints and every animation. Art comes from a `Skin`, so any skin plays every animation.
 /// Origin is at the feet. Faces right; use `facingRight` to flip.
 /// Rotations: positive = counter-clockwise, so a hanging arm swings *forward* with positive angles.
-final class CharacterNode: SKNode {
-    private let restY: CGFloat = 30
-    private let armRest: CGFloat = 0.5
-    private let swordRest: CGFloat = .pi + 2.0
-    private let armLength: CGFloat = 28
+final class HumanoidRig: SKNode {
+    let skin: Skin
+    private let layout: RigLayout
+    private let restY: CGFloat
+    private let armRest: CGFloat
+    private let swordRest: CGFloat
+    private let armLength: CGFloat
 
     private let rig = SKNode()      // lifts the body off the ground; the shadow stays put
     private let body = SKNode()
-    private let shadow = styled(SKShapeNode(ellipseOf: CGSize(width: 64, height: 14)),
-                                SKColor(white: 0, alpha: 0.25), line: 0)
-    private let legBack = limb(width: 14, height: 30, fill: cloakDark)
-    private let legFront = limb(width: 14, height: 30, fill: cloak)
-    private let armOff = limb(width: 12, height: 28, fill: cloakDark)
-    private let armWeapon = limb(width: 12, height: 28, fill: cloak)
-    private let torso = styled(SKShapeNode(rect: CGRect(x: -20, y: 0, width: 40, height: 48), cornerRadius: 14), cloak)
-    private let head = SKNode()
-    private let sword = SKShapeNode()
+    private let shadow: SKShapeNode
+    private let legBack: SKNode
+    private let legFront: SKNode
+    private let armOff: SKNode
+    private let armWeapon: SKNode
+    private let torso: SKNode
+    private let head = SKNode()     // pivot; the skin's head art hangs inside it
+    private let sword: SKNode
 
     /// Distance above the ground (pt, unscaled). The scene's physics drives this.
     var height: CGFloat = 0 { didSet { rig.position.y = height; updateShadow() } }
@@ -62,7 +42,20 @@ final class CharacterNode: SKNode {
     var scaleFactor: CGFloat = 1 { didSet { applyScale() } }
     var facingRight = true { didSet { applyScale() } }
 
-    override init() {
+    init(skin: Skin) {
+        self.skin = skin
+        layout = skin.layout
+        restY = layout.restY
+        armRest = layout.armRest
+        swordRest = layout.weaponRest
+        armLength = layout.armLength
+        shadow = styled(SKShapeNode(ellipseOf: layout.shadowSize), SKColor(white: 0, alpha: 0.25), line: 0)
+        legBack = skin.makeLeg(.back)
+        legFront = skin.makeLeg(.front)
+        armOff = skin.makeArm(.off)
+        armWeapon = skin.makeArm(.weapon)
+        torso = skin.makeTorso()
+        sword = skin.makeWeapon() ?? SKNode()
         super.init()
         build()
         play(.idle)
@@ -86,47 +79,15 @@ final class CharacterNode: SKNode {
         rig.addChild(body)
         body.position = CGPoint(x: 0, y: restY)
 
-        legBack.position = CGPoint(x: -9, y: 0);  legBack.zPosition = -3
-        legFront.position = CGPoint(x: 9, y: 0);  legFront.zPosition = -2
-        armOff.position = CGPoint(x: 17, y: 44);  armOff.zPosition = -1
-        armWeapon.position = CGPoint(x: -16, y: 44); armWeapon.zPosition = 3
-        head.position = CGPoint(x: 2, y: 64);      head.zPosition = 2
+        legBack.position = CGPoint(x: layout.legBackX, y: 0);   legBack.zPosition = -3
+        legFront.position = CGPoint(x: layout.legFrontX, y: 0); legFront.zPosition = -2
+        armOff.position = layout.offShoulder;                   armOff.zPosition = -1
+        armWeapon.position = layout.weaponShoulder;             armWeapon.zPosition = 3
+        head.position = layout.headPivot;                       head.zPosition = 2
+        head.addChild(skin.makeHead())
 
-        // Head: hood + dark face + glowing eyes
-        let hood = styled(SKShapeNode(circleOfRadius: 20), cloak)
-        let face = styled(SKShapeNode(ellipseOf: CGSize(width: 24, height: 22)),
-                          SKColor(red: 0.04, green: 0.03, blue: 0.07, alpha: 1), line: 3)
-        face.position = CGPoint(x: 6, y: -1)
-        for x: CGFloat in [-3, 5] {
-            let eye = styled(SKShapeNode(ellipseOf: CGSize(width: 6, height: 8)),
-                             SKColor(red: 0.4, green: 1, blue: 0.5, alpha: 1), line: 0)
-            eye.glowWidth = 3
-            eye.position = CGPoint(x: x, y: 1)
-            face.addChild(eye)
-        }
-        hood.addChild(face)
-        head.addChild(hood)
-
-        // Sword: blade points along local +y, held at the hand
-        let p = CGMutablePath()
-        p.move(to: CGPoint(x: -4, y: 0)); p.addLine(to: CGPoint(x: 4, y: 0))
-        p.addLine(to: CGPoint(x: 3, y: 46)); p.addLine(to: CGPoint(x: 0, y: 56))
-        p.addLine(to: CGPoint(x: -3, y: 46)); p.closeSubpath()
-        sword.path = p
-        styled(sword, SKColor(white: 0.9, alpha: 1), line: 3)
-        let guardBar = styled(SKShapeNode(rect: CGRect(x: -9, y: -3, width: 18, height: 6), cornerRadius: 3),
-                              SKColor(red: 0.5, green: 0.3, blue: 0.15, alpha: 1), line: 3)
-        let blood = styled(SKShapeNode(ellipseOf: CGSize(width: 6, height: 14)),
-                           SKColor(red: 0.75, green: 0.05, blue: 0.1, alpha: 1), line: 0)
-        blood.position = CGPoint(x: 0, y: 38)
-        sword.addChild(blood)
-        sword.addChild(guardBar)
         sword.position = CGPoint(x: 0, y: -armLength)
         armWeapon.addChild(sword)
-
-        let fist = styled(SKShapeNode(circleOfRadius: 8), cloakDark)
-        fist.position = CGPoint(x: 0, y: -28)
-        armOff.addChild(fist)
 
         [legBack, legFront, armOff, torso, head, armWeapon].forEach(body.addChild)
         resetPose()
@@ -166,7 +127,7 @@ final class CharacterNode: SKNode {
         head.zRotation = 0
         body.xScale = 1; body.yScale = 1
         legBack.zRotation = 0; legFront.zRotation = 0
-        armOff.position = CGPoint(x: 17, y: 44)
+        armOff.position = layout.offShoulder
         armOff.zPosition = -1
         armOff.zRotation = 0; armWeapon.zRotation = armRest
         sword.zRotation = swordRest
@@ -323,7 +284,7 @@ final class CharacterNode: SKNode {
     /// ground ahead. Feet leave the ground on the windup. A smaller cousin of the air slam's impact.
     private func smash() {
         // Off hand slides over to the grip and draws in front of the body: two hands on the weapon
-        armOff.run(.move(to: CGPoint(x: -8, y: 45), duration: 0.1))
+        armOff.run(.move(to: layout.gripPoint, duration: 0.1))
         armOff.zPosition = 4
 
         // Arms: back behind the head, brief hold, then crash down ahead
@@ -419,7 +380,7 @@ final class CharacterNode: SKNode {
         path.addArc(center: .zero, radius: radius, startAngle: start, endAngle: end, clockwise: clockwise)
         let fx = SKShapeNode(path: path)
         fx.strokeColor = .white; fx.lineWidth = 8; fx.lineCap = .round; fx.glowWidth = 3
-        fx.position = CGPoint(x: 17, y: restY + lift)
+        fx.position = CGPoint(x: layout.offShoulder.x, y: restY + lift)
         fx.zPosition = 10
         (parent ?? self).addChild(fx)
         fx.run(.sequence([.group([.fadeOut(withDuration: 0.18), .scale(to: 1.15, duration: 0.18)]),

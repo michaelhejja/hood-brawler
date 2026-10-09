@@ -13,7 +13,8 @@ struct LevelConfig {
 final class GameScene: SKScene {
     var level = LevelConfig()
 
-    let hero = CharacterNode()
+    let hero = HumanoidRig(skin: HeroSkin())
+    private var skeletons: [HumanoidRig] = []
 
     private let cam = SKCameraNode()
     private let groundHeight: CGFloat = 250
@@ -69,9 +70,10 @@ final class GameScene: SKScene {
         addChild(hero)
 
         for (x, y) in [(900, 90), (1150, 170), (1450, 120)] as [(CGFloat, CGFloat)] {
-            let s = SkeletonNode()
-            s.setScale(1.3)
-            s.face(right: false)
+            let s = HumanoidRig(skin: SkeletonSkin())
+            s.scaleFactor = 1.3
+            s.facingRight = false
+            skeletons.append(s)
             s.position = CGPoint(x: x, y: y)
             s.zPosition = 300 - y
             addChild(s)
@@ -177,9 +179,31 @@ final class GameScene: SKScene {
         view.isMultipleTouchEnabled = true
         setupKeyboard()
         if ProcessInfo.processInfo.arguments.contains("-demo") { runDemo() }
+        if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero) }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
-            run(.sequence([.wait(forDuration: 1), .run { [weak self] in if a == .slam || a == .uppercut { self?.hero.height = 150 }; self?.hero.speed = 0.08; self?.hero.play(a) }]))   // slow-mo
+            run(.sequence([.wait(forDuration: 1), .run { [weak self] in   // slow-mo, hero and skeletons side by side
+                guard let self else { return }
+                for r in [self.hero] + self.skeletons {
+                    if a == .slam || a == .uppercut { r.height = 150 }
+                    r.speed = 0.08; r.play(a)
+                }
+            }]))
+        }
+    }
+
+    /// Debug: print every descendant's transform and shape so a refactor can be diffed against a baseline.
+    private func dumpTree(_ n: SKNode, depth: Int = 0) {
+        for c in n.children {
+            var line = String(repeating: " ", count: depth) + "\(type(of: c))"
+            line += String(format: " p(%.1f,%.1f) z%.1f r%.3f s(%.2f,%.2f)", c.position.x, c.position.y, c.zPosition, c.zRotation, c.xScale, c.yScale)
+            if let sh = c as? SKShapeNode {
+                let b = sh.path?.boundingBox ?? .zero
+                line += String(format: " box(%.1f,%.1f,%.1f,%.1f) lw%.1f glow%.1f ", b.minX, b.minY, b.width, b.height, sh.lineWidth, sh.glowWidth)
+                line += "fill=\(sh.fillColor.cgColor.components ?? []) stroke=\(sh.strokeColor.cgColor.components ?? [])"
+            }
+            NSLog("DUMP %@", line)
+            dumpTree(c, depth: depth + 1)
         }
     }
 

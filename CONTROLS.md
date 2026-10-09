@@ -45,3 +45,11 @@ Done: height axis, move table (`Moves.swift`, one row per move).
 Placeholder animations: pick up (none), skid stop (reuses landing pose), weapon attack (no weapon system yet).
 Done: combo chains, early cancel, input buffer.
 Next: hit detection, then dedicated animations for each move.
+
+## Character architecture (composition)
+- `HumanoidRig` (HumanoidRig.swift): owns the joints and every animation. One implementation for everyone.
+- `Skin` (Skin.swift): art for head / torso / legs / arms / weapon plus a `RigLayout` (joint positions). `HeroSkin`, `SkeletonSkin`.
+  A new look = a new skin; it plays every animation automatically. Parts can be mixed across skins.
+- Next: `Fighter` (state, locomotion, height axis, move execution, combo chain, health) pulled out of `GameScene`,
+  and `Brain` (player input or AI) that feeds it gestures.
+- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree).

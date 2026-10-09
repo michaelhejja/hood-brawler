@@ -2,7 +2,7 @@ import SwiftUI
 import SpriteKit
 
 final class CharacterVisualizerScene: SKScene {
-    let character = CharacterNode()
+    let character = HumanoidRig(skin: HeroSkin())
     private let ground = SKShapeNode()
 
     override init() {
