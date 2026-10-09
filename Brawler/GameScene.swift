@@ -9,12 +9,27 @@ final class GameScene: SKScene {
     private let laneMinY: CGFloat = -100      // can walk below the original ground line
     private let laneStartY: CGFloat = 120
     private let verticalFollow: CGFloat = 0.7 // how much of the hero's vertical travel the camera follows
-    private let moveSpeed: CGFloat = 320
     private var baseCamY: CGFloat { size.height / 2 }
     private var layers: [(node: SKNode, fx: CGFloat, fy: CGFloat, tileW: CGFloat)] = []
-    private var target: CGPoint?
-    private var isMoving = false
+
+    // Locomotion tuning (pt/s and pt/s²)
+    private let runSpeed: CGFloat = 520
+    private let baseAccel: CGFloat = 500        // slow drag: ~1s to full velocity
+    private let dragAccelGain: CGFloat = 0.6    // + thumb velocity * gain: a fast flick: ~0.25s
+    private let steerDecel: CGFloat = 1200      // thumb still down but pushing less
+    private let stopDecel: CGFloat = 2600       // thumb lifted: quick stop
+    private let skidDecel: CGFloat = 1100       // thumb lifted at full run: small skid
+
+    let input = InputController()
+    private enum Loco { case idle, walk, run }
+    private var loco: Loco?
+    private var velocity: CGFloat = 0
+    private var moveDir = CGVector(dx: 1, dy: 0)
+    private var actionUntil: TimeInterval = 0
+    private var lastGesture = "-"
     private var lastTime: TimeInterval = 0
+    private let debugLayer = SKNode()
+    private let debugLabel = SKLabelNode(fontNamed: "Menlo-Bold")
 
     override init() {
         super.init(size: CGSize(width: 1334, height: 750))
@@ -38,6 +53,20 @@ final class GameScene: SKScene {
             addChild(s)
         }
         hero.zPosition = 300 - hero.position.y
+
+        // Debug overlay lives on the camera so it stays on screen
+        debugLayer.zPosition = 10_000
+        cam.addChild(debugLayer)
+        let divider = SKShapeNode(rect: CGRect(x: -1, y: -size.height / 2, width: 2, height: size.height))
+        divider.fillColor = .white; divider.strokeColor = .clear; divider.alpha = 0.15
+        divider.zPosition = 10_000
+        cam.addChild(divider)
+        debugLabel.fontSize = 22
+        debugLabel.fontColor = .white
+        debugLabel.position = CGPoint(x: 0, y: size.height / 2 - 40)
+        debugLabel.zPosition = 10_001
+        cam.addChild(debugLabel)
+        input.onGesture = { [weak self] in self?.handle($0) }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -119,16 +148,53 @@ final class GameScene: SKScene {
         layers.append((layer, fx, fy ?? fx, tileW))
     }
 
-    // MARK: Placeholder input (TEMP: drag to walk; real touch controls come next)
+    // MARK: Input
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { setTarget(touches) }
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { setTarget(touches) }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { target = nil }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { target = nil }
+    override func didMove(to view: SKView) { view.isMultipleTouchEnabled = true }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.began(touches, in: v) } }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.moved(touches, in: v) } }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { if let v = view { input.ended(touches, in: v) } }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { input.cancelled(touches) }
 
-    private func setTarget(_ touches: Set<UITouch>) {
-        guard let p = touches.first?.location(in: self) else { return }
-        target = CGPoint(x: p.x, y: min(max(p.y, laneMinY), groundHeight - 30))
+    /// Placeholder mapping until the move table exists: just proves gestures reach the hero.
+    private func handle(_ g: Gesture) {
+        let forward: SwipeDirection = hero.facingRight ? .right : .left
+        var label = ""
+        var anim: CharacterAnimation?
+        var lock: TimeInterval = 0
+        switch g {
+        case .tap:                   label = "tap";          anim = .attack; lock = 0.5
+        case .swipe(.up):            label = "swipe up";     anim = .leap;   lock = 0.9
+        case .swipe(.down):          label = "swipe down"
+        case .swipe(let d) where d == forward: label = "swipe forward"; anim = .attack; lock = 0.5
+        case .swipe:                 label = "swipe back (open)"
+        }
+        lastGesture = label
+        guard let anim else { return }
+        hero.speed = 1
+        hero.play(anim)
+        actionUntil = lastTime + lock
+        loco = nil
+    }
+
+    // MARK: Debug overlay
+
+    private func updateDebug() {
+        debugLayer.removeAllChildren()
+        for t in input.debugTouches {
+            let o = cam.convert(convertPoint(fromView: t.origin), from: self)
+            let c = cam.convert(convertPoint(fromView: t.current), from: self)
+            let color: SKColor = t.isLeft ? .cyan : .orange
+            let ring = SKShapeNode(circleOfRadius: 40)
+            ring.strokeColor = color; ring.lineWidth = 3; ring.fillColor = .clear; ring.alpha = 0.6
+            ring.position = o
+            let dot = SKShapeNode(circleOfRadius: 16)
+            dot.fillColor = color; dot.strokeColor = .clear; dot.alpha = 0.7
+            dot.position = c
+            debugLayer.addChild(ring); debugLayer.addChild(dot)
+        }
+        let state = loco.map { "\($0)" } ?? "action"
+        debugLabel.text = "\(state)  speed \(Int(velocity))  |  last: \(lastGesture)"
     }
 
     // MARK: Loop
@@ -136,24 +202,38 @@ final class GameScene: SKScene {
     override func update(_ currentTime: TimeInterval) {
         let dt = lastTime == 0 ? 0 : min(currentTime - lastTime, 1.0 / 20)
         lastTime = currentTime
+        let d = CGFloat(dt)
 
-        var moving = false
-        if let t = target {
-            let dx = t.x - hero.position.x, dy = t.y - hero.position.y
-            let dist = hypot(dx, dy)
-            if dist > 10 {
-                let step = min(dist, moveSpeed * CGFloat(dt))
-                hero.position.x += dx / dist * step
-                hero.position.y += dy / dist * step
-                hero.zPosition = 300 - hero.position.y
-                if abs(dx) > 8, hero.facingRight != (dx > 0) { hero.facingRight = dx > 0 }
-                moving = true
+        // Momentum locomotion
+        input.update(dt: dt)
+        let intensity = input.intensity
+        let hasInput = intensity > 0
+        if hasInput { moveDir = input.direction }
+        let targetSpeed = intensity * runSpeed
+        if targetSpeed > velocity {
+            // Bigger / faster thumb drags reach full velocity sooner
+            velocity = min(targetSpeed, velocity + (baseAccel + input.dragSpeed * dragAccelGain) * d)
+        } else {
+            let decel = hasInput ? steerDecel : (velocity > runSpeed * 0.8 ? skidDecel : stopDecel)
+            velocity = max(targetSpeed, velocity - decel * d)
+        }
+        if velocity > 0 {
+            hero.position.x += moveDir.dx * velocity * d
+            hero.position.y = min(max(hero.position.y + moveDir.dy * velocity * d, laneMinY), groundHeight - 30)
+            hero.zPosition = 300 - hero.position.y
+        }
+        if hasInput, abs(input.direction.dx) > 0.25 { hero.facingRight = input.direction.dx > 0 }
+
+        // Locomotion animation (paused while an action plays)
+        if currentTime >= actionUntil {
+            let desired: Loco = velocity < 20 ? .idle : (velocity < runSpeed * 0.7 ? .walk : .run)
+            if desired != loco {
+                loco = desired
+                hero.speed = desired == .walk ? 0.6 : 1
+                hero.play(desired == .idle ? .idle : .run)
             }
         }
-        if moving != isMoving {
-            isMoving = moving
-            hero.play(moving ? .run : .idle)
-        }
+        updateDebug()
 
         // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps)
         let follow = min(1, CGFloat(dt) * 6)
@@ -178,6 +258,25 @@ struct GameView: View {
     var body: some View {
         SpriteView(scene: scene, debugOptions: [.showsFPS, .showsNodeCount])
             .ignoresSafeArea()
+            // Simulator keyboard backend: WASD move (Shift = run), arrows = swipes, Space = tap
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(phases: [.down, .up]) { press in
+                let input = scene.input
+                let ch = press.characters.lowercased().first
+                switch (press.key, press.phase) {
+                case (.upArrow, .down):    input.fire(.swipe(.up))
+                case (.downArrow, .down):  input.fire(.swipe(.down))
+                case (.leftArrow, .down):  input.fire(.swipe(.left))
+                case (.rightArrow, .down): input.fire(.swipe(.right))
+                case (.space, .down):      input.fire(.tap)
+                default:
+                    guard let ch, "wasd".contains(ch) else { return .ignored }
+                    if press.phase == .down { input.keyDown(ch, run: press.modifiers.contains(.shift)) }
+                    else { input.keyUp(ch) }
+                }
+                return .handled
+            }
             .overlay(alignment: .topLeading) {
                 Button(action: onBack) { Label("Menu", systemImage: "chevron.left") }
                     .buttonStyle(.borderedProminent)
