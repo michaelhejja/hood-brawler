@@ -40,6 +40,8 @@ final class CharacterNode: SKNode {
     private let armRest: CGFloat = 0.5
     private let swordRest: CGFloat = .pi + 2.0
     private let armLength: CGFloat = 28
+    private let weaponBack: CGFloat = -1     // weapon arm sits behind the torso ...
+    private let weaponFront: CGFloat = 4     // ... and only swings in front while attacking
 
     private let rig = SKNode()      // lifts the body off the ground; the shadow stays put
     private let body = SKNode()
@@ -47,8 +49,8 @@ final class CharacterNode: SKNode {
                                 SKColor(white: 0, alpha: 0.25), line: 0)
     private let legBack = limb(width: 14, height: 30, fill: cloakDark)
     private let legFront = limb(width: 14, height: 30, fill: cloak)
-    private let armBack = limb(width: 12, height: 28, fill: cloakDark)
-    private let armFront = limb(width: 12, height: 28, fill: cloak)
+    private let armOff = limb(width: 12, height: 28, fill: cloakDark)
+    private let armWeapon = limb(width: 12, height: 28, fill: cloak)
     private let torso = styled(SKShapeNode(rect: CGRect(x: -20, y: 0, width: 40, height: 48), cornerRadius: 14), cloak)
     private let head = SKNode()
     private let sword = SKShapeNode()
@@ -85,8 +87,8 @@ final class CharacterNode: SKNode {
 
         legBack.position = CGPoint(x: -9, y: 0);  legBack.zPosition = -3
         legFront.position = CGPoint(x: 9, y: 0);  legFront.zPosition = -2
-        armBack.position = CGPoint(x: -16, y: 44); armBack.zPosition = -1
-        armFront.position = CGPoint(x: 17, y: 44); armFront.zPosition = 3
+        armOff.position = CGPoint(x: 17, y: 44);  armOff.zPosition = 3
+        armWeapon.position = CGPoint(x: -16, y: 44); armWeapon.zPosition = weaponBack
         head.position = CGPoint(x: 2, y: 64);      head.zPosition = 2
 
         // Head: hood + dark face + glowing eyes
@@ -119,13 +121,13 @@ final class CharacterNode: SKNode {
         sword.addChild(blood)
         sword.addChild(guardBar)
         sword.position = CGPoint(x: 0, y: -armLength)
-        armFront.addChild(sword)
+        armWeapon.addChild(sword)
 
         let fist = styled(SKShapeNode(circleOfRadius: 8), cloakDark)
         fist.position = CGPoint(x: 0, y: -28)
-        armBack.addChild(fist)
+        armOff.addChild(fist)
 
-        [legBack, legFront, armBack, torso, head, armFront].forEach(body.addChild)
+        [legBack, legFront, armOff, torso, head, armWeapon].forEach(body.addChild)
         resetPose()
     }
 
@@ -148,7 +150,7 @@ final class CharacterNode: SKNode {
     }
 
     private func stopActions() {
-        [self, body, legBack, legFront, armBack, armFront, sword].forEach { $0.removeAllActions() }
+        [self, body, legBack, legFront, armOff, armWeapon, sword].forEach { $0.removeAllActions() }
     }
 
     private func resetPose() {
@@ -158,8 +160,9 @@ final class CharacterNode: SKNode {
         body.zRotation = 0
         body.xScale = 1; body.yScale = 1
         legBack.zRotation = 0; legFront.zRotation = 0
-        armBack.position = CGPoint(x: -16, y: 44)
-        armBack.zRotation = 0; armFront.zRotation = armRest
+        armOff.position = CGPoint(x: 17, y: 44)
+        armWeapon.zPosition = weaponBack
+        armOff.zRotation = 0; armWeapon.zRotation = armRest
         sword.zRotation = swordRest
         updateShadow()
         alpha = 1
@@ -169,8 +172,8 @@ final class CharacterNode: SKNode {
 
     private func idle() {
         body.run(.repeatForever(.sequence([pose(y: restY + 2, d: 0.7), pose(y: restY, d: 0.7)])))
-        track(armFront, [(armRest + 0.08, 0.7), (armRest - 0.05, 0.7)], loop: true)
-        track(armBack, [(-0.05, 0.7), (0.06, 0.7)], loop: true)
+        track(armWeapon, [(armRest + 0.08, 0.7), (armRest - 0.05, 0.7)], loop: true)
+        track(armOff, [(-0.05, 0.7), (0.06, 0.7)], loop: true)
     }
 
     private func run() {
@@ -179,13 +182,14 @@ final class CharacterNode: SKNode {
         body.run(.repeatForever(.sequence([pose(y: restY + 5, d: c), pose(y: restY, d: c)])))
         track(legFront, [(0.9, c), (-0.9, c)], loop: true)
         track(legBack, [(-0.9, c), (0.9, c)], loop: true)
-        track(armFront, [(-0.7, c), (1.1, c)], loop: true)
-        track(armBack, [(0.7, c), (-0.7, c)], loop: true)
+        track(armWeapon, [(-0.7, c), (1.1, c)], loop: true)
+        track(armOff, [(0.7, c), (-0.7, c)], loop: true)
     }
 
     private func attack() {
-        track(armFront, [(2.8, 0.12), (0.9, 0.07), (nil, 0.1), (armRest, 0.2)])
-        track(armBack, [(-0.8, 0.12), (0.4, 0.07), (nil, 0.1), (0, 0.2)])
+        weaponForward(after: 0.08, for: 0.28)
+        track(armWeapon, [(2.8, 0.12), (0.9, 0.07), (nil, 0.1), (armRest, 0.2)])
+        track(armOff, [(-0.8, 0.12), (0.4, 0.07), (nil, 0.1), (0, 0.2)])
         track(sword, [(.pi, 0.12), (nil, 0.17), (swordRest, 0.2)])
         body.run(.sequence([
             pose(y: restY, x: -8, d: 0.12),
@@ -197,13 +201,18 @@ final class CharacterNode: SKNode {
         run(.sequence([.wait(forDuration: 0.12), .run { [weak self] in self?.spawnSlash() }]))
     }
 
+    /// Weapon arm swings in front of the body for the strike, then goes back behind it.
+    private func weaponForward(after delay: TimeInterval, for duration: TimeInterval) {
+        armWeapon.run(.sequence([.wait(forDuration: delay),
+                                 .run { [weak self] in self?.armWeapon.zPosition = self?.weaponFront ?? 4 },
+                                 .wait(forDuration: duration),
+                                 .run { [weak self] in self?.armWeapon.zPosition = self?.weaponBack ?? -1 }]))
+    }
+
     /// Tap: quick straight punch with the off hand (the one without the sword).
     private func jab() {
-        // The back arm stays BEHIND the torso. The shoulder slides forward so the fist clears the chest.
-        armBack.run(.sequence([.move(to: CGPoint(x: 8, y: 46), duration: 0.06), .wait(forDuration: 0.05),
-                               .move(to: CGPoint(x: -16, y: 44), duration: 0.13)]))
-        track(armBack, [(1.55, 0.06), (nil, 0.05), (0, 0.13)])
-        track(armFront, [(armRest - 0.2, 0.06), (nil, 0.05), (armRest, 0.13)])
+        track(armOff, [(1.55, 0.06), (nil, 0.05), (0, 0.13)])
+        track(armWeapon, [(armRest - 0.2, 0.06), (nil, 0.05), (armRest, 0.13)])
         body.run(.sequence([
             pose(y: restY, x: 10, d: 0.06, .easeIn),
             .wait(forDuration: 0.05),
@@ -215,8 +224,9 @@ final class CharacterNode: SKNode {
 
     /// Forward swipe: wide hooking swing with the weapon hand, committing the whole body.
     private func hook() {
-        track(armFront, [(-0.9, 0.1), (1.7, 0.07), (nil, 0.1), (armRest, 0.2)])
-        track(armBack, [(0.5, 0.1), (-0.6, 0.07), (nil, 0.1), (0, 0.2)])
+        weaponForward(after: 0.06, for: 0.3)
+        track(armWeapon, [(-0.9, 0.1), (1.7, 0.07), (nil, 0.1), (armRest, 0.2)])
+        track(armOff, [(0.5, 0.1), (-0.6, 0.07), (nil, 0.1), (0, 0.2)])
         track(sword, [(2.5, 0.1), (3.0, 0.07), (nil, 0.1), (swordRest, 0.2)])
         body.run(.sequence([
             pose(y: restY, x: -12, d: 0.1),
@@ -230,6 +240,7 @@ final class CharacterNode: SKNode {
     }
 
     private func leap() {
+        weaponForward(after: 0.35, for: 0.35)
         let h: CGFloat = 150
         // timeline: crouch .12 | rise .25 | hang .08 | dive .18 | land .06 | recover .2
         body.run(.sequence([
@@ -241,8 +252,8 @@ final class CharacterNode: SKNode {
             pose(y: restY, d: 0.2, .easeOut),
             returnToIdle
         ]))
-        track(armFront, [(-0.8, 0.12), (2.9, 0.25), (nil, 0.08), (0.15, 0.18), (nil, 0.06), (armRest, 0.2)])
-        track(armBack, [(-0.8, 0.12), (2.6, 0.25), (nil, 0.08), (0.1, 0.18), (nil, 0.06), (0, 0.2)])
+        track(armWeapon, [(-0.8, 0.12), (2.9, 0.25), (nil, 0.08), (0.15, 0.18), (nil, 0.06), (armRest, 0.2)])
+        track(armOff, [(-0.8, 0.12), (2.6, 0.25), (nil, 0.08), (0.1, 0.18), (nil, 0.06), (0, 0.2)])
         track(legFront, [(0.6, 0.12), (1.0, 0.25), (nil, 0.08), (0, 0.18), (nil, 0.26)])
         track(legBack, [(-0.4, 0.12), (-0.5, 0.25), (nil, 0.08), (0, 0.18), (nil, 0.26)])
         track(sword, [(nil, 0.4), (.pi, 0.1), (nil, 0.19), (swordRest, 0.2)])   // blade points down on the dive
@@ -262,16 +273,16 @@ final class CharacterNode: SKNode {
             pose(y: restY * 0.85, sx: 1.1, sy: 0.85, d: 0.06),
             pose(y: restY, sx: 0.94, sy: 1.08, d: 0.12, .easeOut)
         ]))
-        track(armFront, [(-0.6, 0.06), (2.9, 0.16)])
-        track(armBack, [(-0.6, 0.06), (2.6, 0.16)])
+        track(armWeapon, [(-0.6, 0.06), (2.9, 0.16)])
+        track(armOff, [(-0.6, 0.06), (2.6, 0.16)])
         track(legFront, [(0.6, 0.12)])
         track(legBack, [(-0.5, 0.12)])
     }
 
     private func fall() {
         body.run(pose(y: restY, sx: 0.94, sy: 1.08, d: 0.12))
-        track(armFront, [(0.15, 0.15)])
-        track(armBack, [(0.1, 0.15)])
+        track(armWeapon, [(0.15, 0.15)])
+        track(armOff, [(0.1, 0.15)])
         track(legFront, [(0, 0.15)])
         track(legBack, [(0, 0.15)])
         track(sword, [(.pi, 0.1)])
@@ -292,8 +303,8 @@ final class CharacterNode: SKNode {
             returnToIdle
         ]))
         track(body, [(0.35, 0.08), (0, 0.3)])
-        track(armFront, [(1.6, 0.08), (armRest, 0.3)])
-        track(armBack, [(1.2, 0.08), (0, 0.3)])
+        track(armWeapon, [(1.6, 0.08), (armRest, 0.3)])
+        track(armOff, [(1.2, 0.08), (0, 0.3)])
         run(.repeat(.sequence([.fadeAlpha(to: 0.3, duration: 0.05), .fadeAlpha(to: 1, duration: 0.05)]), count: 4))
     }
 
