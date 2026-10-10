@@ -26,11 +26,12 @@ struct FighterStats {
     var gravity: CGFloat = 2400         // only the air-slam dive uses physics; jumps follow `JumpTuning`
     var slamVZ: CGFloat = 1500
     var maxHealth: CGFloat = 100
+    var damageScale: CGFloat = 1        // multiplies the damage this fighter deals
 
     /// Slower and lighter than the hero.
     static var skeleton: FighterStats {
         var s = FighterStats()
-        s.runSpeed = 300; s.baseAccel = 900; s.maxHealth = 40
+        s.runSpeed = 300; s.baseAccel = 900; s.maxHealth = 40; s.damageScale = 0.6
         return s
     }
 }
@@ -43,6 +44,7 @@ final class Fighter {
     let rig: HumanoidRig
     var stats: FighterStats
     var brain: Brain?                      // who is driving this fighter (player or AI)
+    var team = 0                           // fighters only hit other teams
     var logPrefix: String?                 // non-nil: log each move as "MOVE <prefix><description>"
     private(set) var health: CGFloat
 
@@ -63,12 +65,56 @@ final class Fighter {
     private var falling = false
     private var now: TimeInterval = 0
 
+    // Combat state
+    private(set) var launched = false          // knocked into the air (juggle)
+    private(set) var deadSince: TimeInterval?
+    private var hurtUntil: TimeInterval = 0
+    private var downUntil: TimeInterval = 0
+    private var knock: CGFloat = 0              // signed x velocity from the last hit
+    private var frozenUntil: TimeInterval = 0   // hit-stop
+    private var claims: [Int: Set<ObjectIdentifier>] = [:]   // which targets each hit window already struck
+
     init(name: String, skin: Skin, stats: FighterStats = FighterStats()) {
         self.name = name
         self.stats = stats
         health = stats.maxHealth
         rig = HumanoidRig(skin: skin)
         rig.returnsToIdle = false          // the fighter drives locomotion animation itself
+    }
+
+    var dead: Bool { health <= 0 }
+    var healthFraction: CGFloat { health / stats.maxHealth }
+    var isHurt: Bool { now < hurtUntil || launched }
+    var isDown: Bool { !airborne && now < downUntil }          // lying on the ground
+    var incapacitated: Bool { dead || isHurt || isDown }
+    var hittable: Bool { !dead && !isDown }
+    var currentMoveName: String { current?.move.name ?? "-" }
+
+    /// Hit regions of the current move that are live this instant.
+    var activeHits: [(index: Int, hit: Hit, power: CGFloat)] {
+        guard let c = current, !incapacitated else { return [] }
+        let t = now - c.start
+        return c.move.hits.enumerated().compactMap { i, h in
+            t >= h.start && t < h.start + h.duration ? (i, h, c.move.power) : nil
+        }
+    }
+
+    /// True the first time this hit window strikes `target`; a window never hits the same target twice.
+    func claim(_ index: Int, _ target: Fighter) -> Bool {
+        let id = ObjectIdentifier(target)
+        if claims[index, default: []].contains(id) { return false }
+        claims[index, default: []].insert(id)
+        return true
+    }
+
+    /// Back to full health, standing, in a neutral state (respawn / test reset).
+    func restore() {
+        health = stats.maxHealth; deadSince = nil; launched = false
+        airborne = false; jump = nil; vz = 0; falling = false; knock = 0; velocity = 0
+        hurtUntil = 0; downUntil = 0; brakeUntil = 0; actionUntil = 0; frozenUntil = 0
+        current = nil; buffered = nil; claims = [:]; loco = nil
+        rig.isPaused = false; rig.height = 0; rig.alpha = 1; rig.speed = 1
+        rig.play(.idle)
     }
 
     var debugState: String { airborne ? "air" : (loco.map { "\($0)" } ?? "action") }
@@ -81,6 +127,7 @@ final class Fighter {
     // MARK: Gestures -> moves
 
     func handle(_ g: Gesture, bufferedAt: TimeInterval? = nil) {
+        guard !incapacitated else { return }
         let trigger = Trigger(g, facingRight: rig.facingRight)
         let ctx = context
 
@@ -113,6 +160,7 @@ final class Fighter {
 
     private func perform(_ move: Move) {
         current = (move, now)
+        claims = [:]
         buffered = nil
         if move.lunge > 0 {
             moveDir = CGVector(dx: rig.facingRight ? 1 : -1, dy: 0)
@@ -171,6 +219,12 @@ final class Fighter {
             if rig.height > 0 { return }
         }
         // Landed
+        if launched {
+            rig.height = 0
+            airborne = false; falling = false; vz = 0; jump = nil; launched = false
+            lieDown(for: 0.8)
+            return
+        }
         let slammed = (jump == nil)
         rig.height = 0
         airborne = false; falling = false; vz = 0; jump = nil
@@ -179,6 +233,7 @@ final class Fighter {
             let m = MoveTable.slamLanding
             rig.play(.slamLand)
             current = (m, now)
+            claims = [:]
             actionUntil = now + m.lock
             brakeUntil = now + m.lock - 0.05          // feet planted
         } else {
@@ -188,6 +243,58 @@ final class Fighter {
         loco = nil
     }
 
+    // MARK: Taking hits
+
+    func receive(_ hit: Hit, power: CGFloat, scale: CGFloat, from attacker: Fighter) {
+        health = max(0, health - hit.damage * power * scale)
+        let away: CGFloat = attacker.rig.position.x <= rig.position.x ? 1 : -1
+        current = nil; claims = [:]; buffered = nil
+        brakeUntil = 0; velocity = 0; loco = nil
+        knock = away * hit.knockback * power
+        rig.speed = 1
+
+        if airborne || hit.launch > 0 {
+            // Juggle: any hit keeps a launched fighter up; launchers send them higher, spikes drive them down
+            if hit.launch > 0 { vz = hit.launch * (0.6 + 0.4 * power) }
+            else if hit.launch < 0 { vz = hit.launch }
+            else { vz = max(vz, 260) }
+            jump = nil; airborne = true; falling = true; launched = true
+            rig.play(.knockdown)
+        } else if hit.launch < 0 || hit.knockback * power >= 500 || dead {
+            lieDown(for: hit.stun + 0.4)                    // blasted flat
+        } else {
+            hurtUntil = now + hit.stun                      // ordinary flinch
+            actionUntil = hurtUntil
+            rig.play(.hit)
+        }
+        if dead { deadSince = deadSince ?? now }
+    }
+
+    private func lieDown(for duration: TimeInterval) {
+        rig.play(.knockdown)
+        rig.dust()
+        downUntil = now + (dead ? 600 : duration)
+        hurtUntil = downUntil
+        actionUntil = downUntil
+        loco = nil
+    }
+
+    /// Freeze this fighter for a few frames on impact. Every timer shifts by the same amount, so nothing desyncs.
+    func hitStop(_ duration: TimeInterval) {
+        let base = max(frozenUntil, now)
+        let until = now + duration
+        guard until > base else { return }
+        let extra = until - base
+        frozenUntil = until
+        rig.isPaused = true
+        actionUntil += extra
+        if brakeUntil > 0 { brakeUntil += extra }
+        if hurtUntil > 0 { hurtUntil += extra }
+        if downUntil > 0 { downUntil += extra }
+        if var c = current { c.start += extra; current = c }
+        if var b = buffered { b.time += extra; buffered = b }
+    }
+
     // MARK: Per-frame
 
     func face(towardX x: CGFloat) { rig.facingRight = x >= rig.position.x }
@@ -195,17 +302,21 @@ final class Fighter {
     /// One frame: the brain decides, then the body acts.
     func step(now currentTime: TimeInterval, dt: TimeInterval, bounds: WorldBounds, foes: [Fighter]) {
         now = currentTime
-        let intent = brain?.think(me: self, foes: foes, now: currentTime, dt: dt) ?? MoveIntent()
+        let intent = dead ? MoveIntent() : (brain?.think(me: self, foes: foes, now: currentTime, dt: dt) ?? MoveIntent())
         update(now: currentTime, dt: dt, intent: intent, bounds: bounds)
     }
 
     func update(now currentTime: TimeInterval, dt: TimeInterval, intent: MoveIntent, bounds: WorldBounds) {
         now = currentTime
+        if frozenUntil > 0 {
+            if currentTime < frozenUntil { return }          // hit-stop
+            frozenUntil = 0; rig.isPaused = false
+        }
         let d = CGFloat(dt)
 
         // Momentum locomotion
         let braking = currentTime < brakeUntil
-        let intensity = braking ? 0 : intent.intensity
+        let intensity = (braking || incapacitated) ? 0 : intent.intensity
         let hasInput = intensity > 0
         if hasInput { moveDir = intent.direction }
         let targetSpeed = intensity * stats.runSpeed
@@ -221,6 +332,12 @@ final class Fighter {
         if velocity > 0 {
             rig.position.x = min(max(rig.position.x + moveDir.dx * velocity * d, bounds.minX), bounds.maxX)
             rig.position.y = min(max(rig.position.y + moveDir.dy * velocity * d, bounds.minY), bounds.maxY)
+            rig.zPosition = 300 - rig.position.y
+        }
+        if knock != 0 {
+            rig.position.x = min(max(rig.position.x + knock * d, bounds.minX), bounds.maxX)
+            let decel = (airborne ? 500 : 1800) * d
+            knock = knock > 0 ? max(0, knock - decel) : min(0, knock + decel)
             rig.zPosition = 300 - rig.position.y
         }
         if hasInput, abs(intent.direction.dx) > 0.25 { rig.facingRight = intent.direction.dx > 0 }

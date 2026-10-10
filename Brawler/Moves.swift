@@ -37,6 +37,30 @@ enum MoveContext: String {
     case airborne
 }
 
+/// A strike's active window and effect. The region is relative to the attacker's facing, in world points.
+struct Hit {
+    var start: TimeInterval              // seconds after the move begins
+    var duration: TimeInterval = 0.1
+    var reach: ClosedRange<CGFloat>      // forward range from the attacker (negative = behind)
+    var depth: CGFloat = 36              // lane tolerance (+/-)
+    var heightTolerance: CGFloat = 70    // max height difference between attacker and target
+    var damage: CGFloat
+    var knockback: CGFloat = 0           // pt/s away from the attacker
+    var launch: CGFloat = 0              // > 0 pops the target into the air (juggle); < 0 spikes it down
+    var stun: TimeInterval = 0.3
+}
+
+extension Hit {
+    static let jab        = Hit(start: 0.05, duration: 0.09, reach: 0...115, damage: 6, knockback: 140, stun: 0.25)
+    static let hook       = Hit(start: 0.10, duration: 0.10, reach: 0...135, damage: 12, knockback: 380, stun: 0.4)
+    static let dashJab    = Hit(start: 0.04, duration: 0.14, reach: 0...150, damage: 8, knockback: 320, stun: 0.3)
+    static let dashHook   = Hit(start: 0.08, duration: 0.18, reach: 0...160, damage: 16, knockback: 520, stun: 0.45)
+    static let uppercut   = Hit(start: 0.07, duration: 0.14, reach: -10...110, heightTolerance: 300, damage: 14, knockback: 80, launch: 850, stun: 0.4)
+    static let diveSlam   = Hit(start: 0, duration: 1.0, reach: 0...90, depth: 40, heightTolerance: 140, damage: 10, knockback: 250, launch: -900, stun: 0.4)
+    static let shockwave  = Hit(start: 0, duration: 0.12, reach: -170...170, depth: 60, heightTolerance: 80, damage: 14, knockback: 650, launch: 450, stun: 0.5)
+    static let smash      = Hit(start: 0.25, duration: 0.10, reach: 20...230, depth: 44, damage: 18, knockback: 700, launch: 350, stun: 0.5)
+}
+
 /// Pure data. To add a move, add one row to `MoveTable.rows`.
 struct Move {
     let name: String
@@ -52,6 +76,9 @@ struct Move {
     var power: CGFloat = 1           // relative damage / knockback (used once hit detection exists)
     var cancelAt = ComboTuning.cancelAt
     var window = ComboTuning.window
+    var hits: [Hit] = []
+
+    func hitting(_ h: Hit...) -> Move { var m = self; m.hits = h; return m }
 }
 
 enum MoveTable {
@@ -61,34 +88,34 @@ enum MoveTable {
     // Animations marked (placeholder) reuse existing poses until dedicated ones exist.
     private static let rows: [(MoveContext, Trigger, Move)] = [
         // Standing / slow walk
-        (.grounded, .tap,     Move(name: "punch",         animation: .jab,  lock: 0.28)),
+        (.grounded, .tap,     Move(name: "punch",         animation: .jab,  lock: 0.28).hitting(.jab)),
         (.grounded, .up,      Move(name: "small jump",    jumpHeight: 170)),
         (.grounded, .down,    Move(name: "pick up",       lock: 0.3)),                          // (placeholder) no item system yet
-        (.grounded, .forward, Move(name: "heavy attack",  animation: .hook, lock: 0.5, lunge: 140)),
+        (.grounded, .forward, Move(name: "heavy attack",  animation: .hook, lock: 0.5, lunge: 140).hitting(.hook)),
 
         // Fully running
-        (.running,  .tap,     Move(name: "dash attack",   animation: .jab,  lock: 0.3, lunge: 560)),
+        (.running,  .tap,     Move(name: "dash attack",   animation: .jab,  lock: 0.3, lunge: 560).hitting(.dashJab)),
         (.running,  .up,      Move(name: "big jump",      lunge: 560, jumpHeight: 230, jumpRise: 0.24, jumpFall: 0.34, jumpHang: 0.2)),
         (.running,  .forward, powerDash),
         (.running,  .back,    Move(name: "skid stop",     animation: .land, lock: 0.3, brake: 0.3)), // (placeholder) land pose
 
         // In the air
-        (.airborne, .down,    Move(name: "air slam",      animation: .slam, slam: true, power: 1.0)),
+        (.airborne, .down,    Move(name: "air slam",      animation: .slam, slam: true, power: 1.0).hitting(.diveSlam)),
     ]
 
     // Combo links: after `from` (by move name), `trigger` gives the next move. Input-driven: no hit required.
-    private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760)
+    private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760).hitting(.dashHook)
 
     /// Running ground slam. Same shockwave and knockback as the air slam, a bit less powerful.
-    private static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, brake: 0.4, power: 0.7)
+    private static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, brake: 0.4, power: 0.7).hitting(.smash)
 
-    private static let uppercut = Move(name: "uppercut", animation: .uppercut, jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26)
+    private static let uppercut = Move(name: "uppercut", animation: .uppercut, jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26).hitting(.uppercut)
 
     /// Landing from an air slam: a short recovery during which the combo chain is open from the first frame.
-    static let slamLanding = Move(name: "slam landing", animation: .slamLand, lock: 0.3, cancelAt: 0)
+    static let slamLanding = Move(name: "slam landing", animation: .slamLand, lock: 0.3, cancelAt: 0).hitting(.shockwave)
 
     private static let chains: [(from: String, trigger: Trigger, move: Move)] = [
-        ("punch",      .tap,  Move(name: "punch 2",      animation: .jab,  lock: 0.28, lunge: 80)),
+        ("punch",      .tap,  Move(name: "punch 2",      animation: .jab,  lock: 0.28, lunge: 80).hitting(.jab)),
         ("punch 2",      .up,   uppercut),                       // standing-combo entry
         ("heavy attack", .up,   uppercut),                       // any strong attack ...
         ("power dash",   .up,   uppercut),                       // ... including after a full run

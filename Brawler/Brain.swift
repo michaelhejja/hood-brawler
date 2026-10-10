@@ -58,7 +58,11 @@ final class EnemyBrain: Brain {
     init(traits: EnemyTraits = EnemyTraits()) { self.traits = traits }
 
     func think(me: Fighter, foes: [Fighter], now: TimeInterval, dt: TimeInterval) -> MoveIntent {
-        guard let target = foes.first else { return MoveIntent() }
+        guard let target = foes.first(where: { !$0.dead }) else { return MoveIntent() }
+        if me.incapacitated {                          // knocked about: drop the plan, recover before acting again
+            if case .recover = state {} else { state = .recover(until: now + .random(in: 0.4...0.9)) }
+            return MoveIntent()
+        }
         let dx = target.rig.position.x - me.rig.position.x
         let dy = target.rig.position.y - me.rig.position.y
         let dist = max(hypot(dx, dy), 1)

@@ -43,16 +43,7 @@ final class GameScene: SKScene {
         hero.logPrefix = ""
         addChild(hero.rig)
 
-        for (x, y) in [(900, 90), (1150, 170), (1450, 120)] as [(CGFloat, CGFloat)] {
-            let e = Fighter(name: "skeleton", skin: SkeletonSkin(), stats: .skeleton)
-            if !ProcessInfo.processInfo.arguments.contains("-passive") { e.brain = EnemyBrain() }
-            e.rig.scaleFactor = 1.3
-            e.rig.facingRight = false
-            e.rig.position = CGPoint(x: x, y: y)
-            e.rig.zPosition = 300 - y
-            enemies.append(e)
-            addChild(e.rig)
-        }
+        for (x, y) in [(900, 90), (1150, 170), (1450, 120)] as [(CGFloat, CGFloat)] { spawnEnemy(x: x, y: y) }
         hero.rig.zPosition = 300 - hero.rig.position.y
 
         // Debug overlay lives on the camera so it stays on screen
@@ -67,8 +58,85 @@ final class GameScene: SKScene {
         debugLabel.zPosition = 10_001
         cam.addChild(debugLabel)
         hero.brain = PlayerBrain(input: input, fighter: hero)
+        heroBar.zPosition = 10_000
+        cam.addChild(heroBar)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    // MARK: Enemies
+
+    private let args = ProcessInfo.processInfo.arguments
+    private var bars: [ObjectIdentifier: HealthBar] = [:]
+    private let heroBar = HealthBar(width: 300, height: 14)
+    private var nextSpawn: TimeInterval = 0
+
+    private func spawnEnemy(x: CGFloat, y: CGFloat) {
+        let e = Fighter(name: "skeleton", skin: SkeletonSkin(), stats: .skeleton)
+        e.team = 1
+        if !args.contains("-passive"), !args.contains("-hittest") { e.brain = EnemyBrain() }
+        e.rig.scaleFactor = 1.3
+        e.rig.facingRight = false
+        e.rig.position = CGPoint(x: x, y: y)
+        e.rig.zPosition = 300 - y
+        enemies.append(e)
+        addChild(e.rig)
+        let bar = HealthBar(width: 70)
+        bar.zPosition = 9000
+        bars[ObjectIdentifier(e)] = bar
+        addChild(bar)
+    }
+
+    /// Impact flash plus a floating damage number.
+    private func spawnImpact(at p: CGPoint, damage: CGFloat) {
+        let path = CGMutablePath()
+        for i in 0..<16 {
+            let r: CGFloat = i % 2 == 0 ? 8 + damage * 1.6 : 6 + damage * 0.6
+            let a = CGFloat(i) * .pi / 8
+            let pt = CGPoint(x: cos(a) * r, y: sin(a) * r)
+            if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+        }
+        path.closeSubpath()
+        let star = styled(SKShapeNode(path: path), .white, line: 3)
+        star.position = p; star.zPosition = 9500
+        addChild(star)
+        star.run(.sequence([.group([.scale(to: 1.5, duration: 0.14), .fadeOut(withDuration: 0.14)]), .removeFromParent()]))
+
+        let text = "\(Int(damage.rounded()))"
+        for (offset, color) in [(CGPoint(x: 2, y: -2), SKColor.black), (CGPoint.zero, SKColor(red: 1, green: 0.9, blue: 0.3, alpha: 1))] {
+            let l = SKLabelNode(fontNamed: "Menlo-Bold")
+            l.text = text; l.fontSize = 28; l.fontColor = color
+            l.position = CGPoint(x: p.x + offset.x, y: p.y + 20 + offset.y); l.zPosition = 9501 + (color == .black ? 0 : 1)
+            addChild(l)
+            l.run(.sequence([.group([.moveBy(x: 0, y: 55, duration: 0.7), .sequence([.wait(forDuration: 0.35), .fadeOut(withDuration: 0.35)])]),
+                             .removeFromParent()]))
+        }
+    }
+
+    private func updateCombat(now: TimeInterval) {
+        for c in Combat.resolve([hero] + enemies) { spawnImpact(at: c.point, damage: c.damage) }
+
+        // Health bars float over enemies (hidden at full health); the hero's sits at the bottom of the screen
+        for e in enemies {
+            guard let bar = bars[ObjectIdentifier(e)] else { continue }
+            bar.position = CGPoint(x: e.rig.position.x, y: e.rig.position.y + e.rig.height * 1.3 + 128)
+            bar.set(e.healthFraction)
+            bar.isHidden = e.dead || e.healthFraction >= 1
+        }
+        heroBar.set(hero.healthFraction)
+
+        // Clear out the dead; keep the playground stocked
+        enemies.removeAll { e in
+            guard e.dead, let since = e.deadSince, now - since > 1.5, !args.contains("-hittest") else { return false }
+            e.rig.run(.sequence([.fadeOut(withDuration: 0.3), .removeFromParent()]))
+            bars.removeValue(forKey: ObjectIdentifier(e))?.removeFromParent()
+            return true
+        }
+        if hero.dead, let since = hero.deadSince, now - since > 2.5 { hero.restore() }
+        if !args.contains("-hittest"), !args.contains("-passive"), enemies.count < 3, now >= nextSpawn {
+            nextSpawn = now + 3
+            spawnEnemy(x: min(level.maxX - 100, hero.rig.position.x + size.width * 0.8), y: .random(in: 40...180))
+        }
+    }
 
     // MARK: World
 
@@ -157,6 +225,7 @@ final class GameScene: SKScene {
         if ProcessInfo.processInfo.arguments.contains("-enemylog") {
             for (i, e) in enemies.enumerated() { e.logPrefix = "\(e.name)#\(i): " }
         }
+        if ProcessInfo.processInfo.arguments.contains("-hittest") { runHitTest() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
@@ -213,6 +282,35 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-hittest`: one passive skeleton in front of the hero; each case resets both and fires gestures.
+    /// Results appear as `HIT ...` lines (damage, remaining hp, LAUNCH / KO).
+    private func runHitTest() {
+        guard let e = enemies.first else { return }
+        func fire(_ g: Gesture) -> SKAction { .run { [weak self] in self?.hero.handle(g) } }
+        func w(_ t: Double) -> SKAction { .wait(forDuration: t) }
+        func reset(_ title: String, gap: CGFloat = 90) -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            NSLog("HITTEST --- %@", title)
+            self.hero.restore(); self.hero.rig.position = CGPoint(x: 667, y: 120); self.hero.rig.facingRight = true
+            e.restore(); e.rig.position = CGPoint(x: 667 + gap, y: 120); e.rig.facingRight = false
+        } }
+        run(.sequence([
+            w(1),
+            reset("jab"), fire(.tap), w(1.5),
+            reset("hook"), fire(.swipe(.right)), w(1.5),
+            reset("jab jab"), fire(.tap), w(0.2), fire(.tap), w(1.5),
+            reset("hook uppercut"), fire(.swipe(.right)), w(0.3), fire(.swipe(.up)), w(2.0),
+            reset("juggle: hook uppercut slam"), fire(.swipe(.right)), w(0.3), fire(.swipe(.up)), w(0.5), fire(.swipe(.down)), w(2.2),
+            reset("out of reach", gap: 400), fire(.tap), w(1.2),
+            reset("power dash", gap: 330), .run { [weak self] in self?.input.keyDown("d", run: true) }, w(0.7),
+            fire(.swipe(.right)), w(0.5), .run { [weak self] in self?.input.keyUp("d") }, w(1.5),
+            reset("dash attack then smash", gap: 330), .run { [weak self] in self?.input.keyDown("d", run: true) }, w(0.7),
+            fire(.tap), w(0.25), fire(.swipe(.down)), w(0.5), .run { [weak self] in self?.input.keyUp("d") }, w(1.5),
+            reset("ground smash", gap: 330), .run { [weak self] in self?.input.keyDown("d", run: true) }, w(0.7),
+            fire(.swipe(.right)), w(0.25), fire(.swipe(.down)), w(0.5), .run { [weak self] in self?.input.keyUp("d") }, w(1.5)
+        ]))
     }
 
     /// Launch with `-demo` to play a scripted input sequence (no touch needed). Exercises every move-table context.
@@ -278,6 +376,7 @@ final class GameScene: SKScene {
     private func updateDebug() {
         debugLayer.removeAllChildren()
         debugLabel.position = CGPoint(x: 0, y: visibleHalfHeight - 56)
+        heroBar.position = CGPoint(x: 0, y: -visibleHalfHeight + 28)
         for t in input.debugTouches {
             let o = cam.convert(convertPoint(fromView: t.origin), from: self)
             let c = cam.convert(convertPoint(fromView: t.current), from: self)
@@ -290,7 +389,7 @@ final class GameScene: SKScene {
             dot.position = c
             debugLayer.addChild(ring); debugLayer.addChild(dot)
         }
-        debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  |  last: \(hero.lastGesture)"
+        debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  hp \(Int(hero.health))  |  last: \(hero.lastGesture)"
     }
 
     // MARK: Loop
@@ -303,6 +402,7 @@ final class GameScene: SKScene {
                                  minY: laneMinY, maxY: groundHeight - 30)
         hero.step(now: currentTime, dt: dt, bounds: bounds, foes: enemies)
         for e in enemies { e.step(now: currentTime, dt: dt, bounds: bounds, foes: [hero]) }
+        updateCombat(now: currentTime)
         updateDebug()
 
         // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps)

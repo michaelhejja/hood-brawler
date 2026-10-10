@@ -55,5 +55,9 @@ Next: hit detection, then dedicated animations for each move.
 - `Brain` (Brain.swift): decides what a Fighter does each frame. `PlayerBrain` wraps touch/keyboard input; `EnemyBrain` is a
   state machine (approach, pause, attack, recover, back off) with `EnemyTraits` (reaction time, cooldown, reach, combo/charge/retreat odds).
   Brains only send gestures through `Fighter.handle`, so enemies use the same move table and combos as the player.
-- Next: hit detection (works for any Fighter), then enemy spacing so they don't stack.
-- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain).
+- Hit detection (Combat.swift): each `Move` lists `Hit` windows (start, duration, reach, lane depth, height tolerance, damage,
+  knockback, launch, stun). Same code for any Fighter; fighters only hit other `team`s. Damage = hit.damage x move.power x attacker.damageScale.
+  Reactions: flinch, blasted flat (heavy knockback), launched into the air (juggle: any hit keeps them up; a spike drives them down), KO.
+  Hit-stop freezes both fighters briefly, longer for heavier hits.
+- Next: enemy spacing so they don't stack, tune damage/knockback, hit reaction animations.
+- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` (scripted hit cases, logs `HIT` lines).

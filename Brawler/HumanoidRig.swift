@@ -7,6 +7,7 @@ enum CharacterAnimation: String, CaseIterable, Identifiable {
     case slam, slamLand        // air-to-ground attack: the dive, then the impact
     case smash                 // running ground slam: two-handed overhead swing
     case uppercut              // launcher: cock low, swing up, head thrown back
+    case knockdown             // blasted flat: topples backwards and stays down
     var id: String { rawValue }
     static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .uppercut, .smash, .hit, .slam]
     var title: String { rawValue.capitalized }
@@ -111,6 +112,7 @@ final class HumanoidRig: SKNode {
         case .slam:   slam()
         case .smash:  smash()
         case .uppercut: uppercut()
+        case .knockdown: knockdown()
         case .slamLand: slamLand()
         }
     }
@@ -258,6 +260,20 @@ final class HumanoidRig: SKNode {
         body.run(pose(y: restY, sx: 0.92, sy: 1.1, d: 0.1))
         streaks()
     }
+
+    /// Blasted flat: topples backwards, limbs flung out, and stays down until the fighter gets up.
+    private func knockdown() {
+        track(body, [(1.5, 0.14)])
+        body.run(pose(y: restY * 0.7, d: 0.14, .easeOut))
+        track(head, [(0.25, 0.14)])
+        track(armWeapon, [(2.3, 0.14)])
+        track(armOff, [(1.9, 0.14)])
+        track(legFront, [(0.8, 0.14)])
+        track(legBack, [(0.3, 0.14)])
+    }
+
+    /// Ground-impact dust (landings, knockdowns).
+    func dust() { puff() }
 
     /// Uppercut: sink low with the weapon hauled down and back, then uncoil upward in one big arc.
     /// Front leg drives up, back leg stays pointed down, head is thrown back to follow the blade.
