@@ -52,5 +52,8 @@ Next: hit detection, then dedicated animations for each move.
   A new look = a new skin; it plays every animation automatically. Parts can be mixed across skins.
 - `Fighter` (Fighter.swift): all state and rules for one character (locomotion, height axis, move execution, combo chain,
   input buffer, health). Brain-agnostic: `update(intent:)` each frame + `handle(gesture)`. `FighterStats` holds per-character numbers.
-- Next: `Brain` (player input or AI) that produces `MoveIntent` + gestures for a Fighter. Then hit detection.
-- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemy` (a skeleton fights through the same Fighter).
+- `Brain` (Brain.swift): decides what a Fighter does each frame. `PlayerBrain` wraps touch/keyboard input; `EnemyBrain` is a
+  state machine (approach, pause, attack, recover, back off) with `EnemyTraits` (reaction time, cooldown, reach, combo/charge/retreat odds).
+  Brains only send gestures through `Fighter.handle`, so enemies use the same move table and combos as the player.
+- Next: hit detection (works for any Fighter), then enemy spacing so they don't stack.
+- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain).

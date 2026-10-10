@@ -44,7 +44,8 @@ final class GameScene: SKScene {
         addChild(hero.rig)
 
         for (x, y) in [(900, 90), (1150, 170), (1450, 120)] as [(CGFloat, CGFloat)] {
-            let e = Fighter(name: "skeleton", skin: SkeletonSkin())
+            let e = Fighter(name: "skeleton", skin: SkeletonSkin(), stats: .skeleton)
+            if !ProcessInfo.processInfo.arguments.contains("-passive") { e.brain = EnemyBrain() }
             e.rig.scaleFactor = 1.3
             e.rig.facingRight = false
             e.rig.position = CGPoint(x: x, y: y)
@@ -65,7 +66,7 @@ final class GameScene: SKScene {
         debugLabel.fontColor = .white
         debugLabel.zPosition = 10_001
         cam.addChild(debugLabel)
-        input.onGesture = { [weak self] in self?.hero.handle($0) }
+        hero.brain = PlayerBrain(input: input, fighter: hero)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -153,7 +154,9 @@ final class GameScene: SKScene {
         view.isMultipleTouchEnabled = true
         setupKeyboard()
         if ProcessInfo.processInfo.arguments.contains("-demo") { runDemo() }
-        if ProcessInfo.processInfo.arguments.contains("-enemy") { runEnemyDemo() }
+        if ProcessInfo.processInfo.arguments.contains("-enemylog") {
+            for (i, e) in enemies.enumerated() { e.logPrefix = "\(e.name)#\(i): " }
+        }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
@@ -210,22 +213,6 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
-    }
-
-    /// Launch with `-enemy`: a skeleton fights using the exact same Fighter / move table as the hero.
-    private func runEnemyDemo() {
-        guard let e = enemies.first else { return }
-        e.logPrefix = "skeleton: "
-        func fire(_ g: Gesture) -> SKAction { .run { e.handle(g) } }
-        run(.sequence([
-            .wait(forDuration: 1),
-            fire(.tap), .wait(forDuration: 0.2),                       // jab ...
-            fire(.tap), .wait(forDuration: 0.8),                       // ... jab 2
-            fire(.swipe(.left)), .wait(forDuration: 0.8),              // swipe left = forward for a left-facing skeleton
-            fire(.swipe(.up)), .wait(forDuration: 0.3),                // jump
-            fire(.swipe(.down)), .wait(forDuration: 1.0),              // air slam
-            fire(.swipe(.left)), .wait(forDuration: 0.8)               // -> power dash from the landing cooldown
-        ]))
     }
 
     /// Launch with `-demo` to play a scripted input sequence (no touch needed). Exercises every move-table context.
@@ -312,12 +299,10 @@ final class GameScene: SKScene {
         let dt = lastTime == 0 ? 0 : min(currentTime - lastTime, 1.0 / 20)
         lastTime = currentTime
 
-        input.update(dt: dt)
-        let intent = MoveIntent(direction: input.direction, intensity: input.intensity, dragSpeed: input.dragSpeed)
         let bounds = WorldBounds(minX: level.minX + level.heroInset, maxX: level.maxX - level.heroInset,
                                  minY: laneMinY, maxY: groundHeight - 30)
-        hero.update(now: currentTime, dt: dt, intent: intent, bounds: bounds)
-        for e in enemies { e.update(now: currentTime, dt: dt, intent: MoveIntent(), bounds: bounds) }
+        hero.step(now: currentTime, dt: dt, bounds: bounds, foes: enemies)
+        for e in enemies { e.step(now: currentTime, dt: dt, bounds: bounds, foes: [hero]) }
         updateDebug()
 
         // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps)

@@ -26,6 +26,13 @@ struct FighterStats {
     var gravity: CGFloat = 2400         // only the air-slam dive uses physics; jumps follow `JumpTuning`
     var slamVZ: CGFloat = 1500
     var maxHealth: CGFloat = 100
+
+    /// Slower and lighter than the hero.
+    static var skeleton: FighterStats {
+        var s = FighterStats()
+        s.runSpeed = 300; s.baseAccel = 900; s.maxHealth = 40
+        return s
+    }
 }
 
 /// All of a character's state and rules: locomotion, height axis, move execution, combo chain, input buffer, health.
@@ -35,6 +42,7 @@ final class Fighter {
     let name: String
     let rig: HumanoidRig
     var stats: FighterStats
+    var brain: Brain?                      // who is driving this fighter (player or AI)
     var logPrefix: String?                 // non-nil: log each move as "MOVE <prefix><description>"
     private(set) var health: CGFloat
 
@@ -181,6 +189,15 @@ final class Fighter {
     }
 
     // MARK: Per-frame
+
+    func face(towardX x: CGFloat) { rig.facingRight = x >= rig.position.x }
+
+    /// One frame: the brain decides, then the body acts.
+    func step(now currentTime: TimeInterval, dt: TimeInterval, bounds: WorldBounds, foes: [Fighter]) {
+        now = currentTime
+        let intent = brain?.think(me: self, foes: foes, now: currentTime, dt: dt) ?? MoveIntent()
+        update(now: currentTime, dt: dt, intent: intent, bounds: bounds)
+    }
 
     func update(now currentTime: TimeInterval, dt: TimeInterval, intent: MoveIntent, bounds: WorldBounds) {
         now = currentTime
