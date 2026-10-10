@@ -58,7 +58,7 @@ extension Hit {
     static let uppercut   = Hit(start: 0.07, duration: 0.14, reach: -10...110, heightTolerance: 300, damage: 14, knockback: 80, launch: 850, stun: 0.4)
     static let diveSlam   = Hit(start: 0, duration: 1.0, reach: 0...90, depth: 40, heightTolerance: 140, damage: 10, knockback: 250, launch: -900, stun: 0.4)
     static let shockwave  = Hit(start: 0, duration: 0.12, reach: -170...170, depth: 60, heightTolerance: 80, damage: 14, knockback: 650, launch: 450, stun: 0.5)
-    static let smash      = Hit(start: 0.25, duration: 0.10, reach: 20...230, depth: 44, damage: 18, knockback: 700, launch: 350, stun: 0.5)
+    static let smash      = Hit(start: 0.25, duration: 0.12, reach: 0...175, depth: 50, heightTolerance: 120, damage: 18, knockback: 700, launch: 350, stun: 0.5)
 }
 
 /// Pure data. To add a move, add one row to `MoveTable.rows`.
@@ -67,6 +67,9 @@ struct Move {
     var animation: CharacterAnimation? = nil
     var lock: TimeInterval = 0       // grounded: how long the action holds before locomotion resumes
     var lunge: CGFloat = 0           // forward speed burst (pt/s); never reduces current speed
+    var advance: CGFloat = 0         // root motion: distance (pt) travelled forward, eased, independent of run speed
+    var advanceStart: TimeInterval = 0
+    var advanceDuration: TimeInterval = 0.2
     var jumpHeight: CGFloat = 0      // > 0 launches into the air (peak height in pt)
     var jumpRise = JumpTuning.rise
     var jumpFall = JumpTuning.fall
@@ -107,7 +110,7 @@ enum MoveTable {
     private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760).hitting(.dashHook)
 
     /// Running ground slam. Same shockwave and knockback as the air slam, a bit less powerful.
-    private static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, brake: 0.4, power: 0.7).hitting(.smash)
+    static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, advance: 150, advanceStart: 0, advanceDuration: 0.27, brake: 0.4, power: 0.7).hitting(.smash)
 
     private static let uppercut = Move(name: "uppercut", animation: .uppercut, jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26).hitting(.uppercut)
 

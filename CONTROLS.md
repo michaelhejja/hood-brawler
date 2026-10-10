@@ -32,6 +32,7 @@ Back-swipe while standing is intentionally unassigned: reserved for future speci
 - Air slam (swipe down in the air): dive pitched hard forward, both hands out, weapon leading. Landing has a 0.3s cooldown with the chain open from the first frame: forward -> power dash, up -> uppercut. Input mashed mid-dive is buffered and fires on landing.
 - Uppercut: weapon hand cocks low, then swings up in a big arc with a rising slash trail. Front knee drives up, back leg stays pointed down, head cocks back to follow the blade. Pose holds through the jump's hang.
 - Ground smash (swipe down after power dash / dash attack): two-handed overhead swing, feet leave the ground, shockwave ahead. Same effect as the air slam at `power` 0.7 vs 1.0 (damage/knockback, once hit detection exists).
+- Ground smash advances ~150pt on its own (root motion, eased) and hits 0-175pt ahead. Attacking fighters stop at arm's length from an opponent instead of running through them.
 - Jumps use a strong ease-in-out height curve (`JumpTuning`): tension at the bottom and apex, fast in between.
 - Tuning lives in `ComboTuning` (Moves.swift). Chains are rows in `MoveTable.chains`.
 

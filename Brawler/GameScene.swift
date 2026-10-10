@@ -308,8 +308,12 @@ final class GameScene: SKScene {
             fire(.swipe(.right)), w(0.5), .run { [weak self] in self?.input.keyUp("d") }, w(1.5),
             reset("dash attack then smash", gap: 330), .run { [weak self] in self?.input.keyDown("d", run: true) }, w(0.7),
             fire(.tap), w(0.25), fire(.swipe(.down)), w(0.5), .run { [weak self] in self?.input.keyUp("d") }, w(1.5),
-            reset("ground smash", gap: 330), .run { [weak self] in self?.input.keyDown("d", run: true) }, w(0.7),
-            fire(.swipe(.right)), w(0.25), fire(.swipe(.down)), w(0.5), .run { [weak self] in self?.input.keyUp("d") }, w(1.5)
+            reset("smash alone, standing, gap 70", gap: 70), .run { [weak self] in self?.hero.debugPerform(MoveTable.groundSmash) }, w(1.2),
+            reset("smash alone, standing, gap 150", gap: 150), .run { [weak self] in self?.hero.debugPerform(MoveTable.groundSmash) }, w(1.2),
+            reset("smash alone, standing, gap 230", gap: 230), .run { [weak self] in self?.hero.debugPerform(MoveTable.groundSmash) }, w(1.2),
+            reset("smash alone, standing, gap 300", gap: 300), .run { [weak self] in self?.hero.debugPerform(MoveTable.groundSmash) }, w(1.2),
+            reset("smash alone, standing, gap 380", gap: 380), .run { [weak self] in self?.hero.debugPerform(MoveTable.groundSmash) }, w(1.2),
+            reset("smash alone, running, gap 330", gap: 330), .run { [weak self] in self?.input.keyDown("d", run: true) }, w(0.7), .run { [weak self] in self?.hero.debugPerform(MoveTable.groundSmash) }, w(0.6), .run { [weak self] in self?.input.keyUp("d") }, w(1.2),
         ]))
     }
 

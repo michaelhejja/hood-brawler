@@ -64,12 +64,15 @@ final class Fighter {
     private var jump: (height: CGFloat, rise: CGFloat, hang: CGFloat, fall: CGFloat, t: CGFloat)?   // nil = physics (slam)
     private var falling = false
     private var now: TimeInterval = 0
+    private var foesNow: [Fighter] = []
+    static let personalSpace: CGFloat = 46     // root motion stops this far short of an opponent
 
     // Combat state
     private(set) var launched = false          // knocked into the air (juggle)
     private(set) var deadSince: TimeInterval?
     private var hurtUntil: TimeInterval = 0
     private var downUntil: TimeInterval = 0
+    private var advance: (from: TimeInterval, dur: TimeInterval, dist: CGFloat, dir: CGFloat, done: CGFloat)?
     private var knock: CGFloat = 0              // signed x velocity from the last hit
     private var frozenUntil: TimeInterval = 0   // hit-stop
     private var claims: [Int: Set<ObjectIdentifier>] = [:]   // which targets each hit window already struck
@@ -112,10 +115,31 @@ final class Fighter {
         health = stats.maxHealth; deadSince = nil; launched = false
         airborne = false; jump = nil; vz = 0; falling = false; knock = 0; velocity = 0
         hurtUntil = 0; downUntil = 0; brakeUntil = 0; actionUntil = 0; frozenUntil = 0
-        current = nil; buffered = nil; claims = [:]; loco = nil
+        current = nil; buffered = nil; claims = [:]; loco = nil; advance = nil
         rig.isPaused = false; rig.height = 0; rig.alpha = 1; rig.speed = 1
         rig.play(.idle)
     }
+
+    /// Mid-attack with a live move (not just recovering).
+    private var attacking: Bool {
+        guard let c = current, !incapacitated else { return false }
+        return !c.move.hits.isEmpty && now <= c.start + c.move.lock
+    }
+
+    /// While attacking, don't carry through an opponent: stop at arm's length so the next move still connects.
+    private func stopShort(from x0: CGFloat, to x1: CGFloat, dir: CGFloat) -> CGFloat {
+        var x = x1
+        for f in foesNow where f.hittable && abs(f.rig.position.y - rig.position.y) < 40 {
+            let ahead = (f.rig.position.x - x0) * dir
+            guard ahead > -10 else { continue }                     // already past them: not blocked
+            x = dir > 0 ? min(x, max(x0, f.rig.position.x - Fighter.personalSpace))
+                        : max(x, min(x0, f.rig.position.x + Fighter.personalSpace))
+        }
+        return x
+    }
+
+    /// Test hook: run a move directly, skipping the gesture / context / chain rules.
+    func debugPerform(_ m: Move) { perform(m) }
 
     var debugState: String { airborne ? "air" : (loco.map { "\($0)" } ?? "action") }
 
@@ -162,6 +186,8 @@ final class Fighter {
         current = (move, now)
         claims = [:]
         buffered = nil
+        advance = move.advance > 0
+            ? (now + move.advanceStart, move.advanceDuration, move.advance, rig.facingRight ? 1 : -1, 0) : nil
         if move.lunge > 0 {
             moveDir = CGVector(dx: rig.facingRight ? 1 : -1, dy: 0)
             velocity = max(velocity, move.lunge)
@@ -248,7 +274,7 @@ final class Fighter {
     func receive(_ hit: Hit, power: CGFloat, scale: CGFloat, from attacker: Fighter) {
         health = max(0, health - hit.damage * power * scale)
         let away: CGFloat = attacker.rig.position.x <= rig.position.x ? 1 : -1
-        current = nil; claims = [:]; buffered = nil
+        current = nil; claims = [:]; buffered = nil; advance = nil
         brakeUntil = 0; velocity = 0; loco = nil
         knock = away * hit.knockback * power
         rig.speed = 1
@@ -292,6 +318,7 @@ final class Fighter {
         if hurtUntil > 0 { hurtUntil += extra }
         if downUntil > 0 { downUntil += extra }
         if var c = current { c.start += extra; current = c }
+        if var a = advance { a.from += extra; advance = a }
         if var b = buffered { b.time += extra; buffered = b }
     }
 
@@ -302,6 +329,7 @@ final class Fighter {
     /// One frame: the brain decides, then the body acts.
     func step(now currentTime: TimeInterval, dt: TimeInterval, bounds: WorldBounds, foes: [Fighter]) {
         now = currentTime
+        foesNow = foes
         let intent = dead ? MoveIntent() : (brain?.think(me: self, foes: foes, now: currentTime, dt: dt) ?? MoveIntent())
         update(now: currentTime, dt: dt, intent: intent, bounds: bounds)
     }
@@ -330,9 +358,19 @@ final class Fighter {
             velocity = max(targetSpeed, velocity - decel * d)
         }
         if velocity > 0 {
-            rig.position.x = min(max(rig.position.x + moveDir.dx * velocity * d, bounds.minX), bounds.maxX)
+            var nx = rig.position.x + moveDir.dx * velocity * d
+            if attacking { nx = stopShort(from: rig.position.x, to: nx, dir: moveDir.dx >= 0 ? 1 : -1) }   // dash attacks stop at the target
+            rig.position.x = min(max(nx, bounds.minX), bounds.maxX)
             rig.position.y = min(max(rig.position.y + moveDir.dy * velocity * d, bounds.minY), bounds.maxY)
             rig.zPosition = 300 - rig.position.y
+        }
+        if var a = advance, currentTime >= a.from {
+            let f = min(1, CGFloat((currentTime - a.from) / a.dur))
+            let eased = f * f * (3 - 2 * f)                       // smoothstep: wind up, surge, settle
+            let x = stopShort(from: rig.position.x, to: rig.position.x + a.dist * a.dir * (eased - a.done), dir: a.dir)
+            rig.position.x = min(max(x, bounds.minX), bounds.maxX)
+            a.done = eased
+            advance = f >= 1 ? nil : a
         }
         if knock != 0 {
             rig.position.x = min(max(rig.position.x + knock * d, bounds.minX), bounds.maxX)
