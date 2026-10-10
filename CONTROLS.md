@@ -68,5 +68,12 @@ Next: hit detection, then dedicated animations for each move.
   the old one is tossed behind you; food heals 25 and stays on the ground at full health. Only the player collects items.
 - Strong hits (launch, spike, or knockback >= 500) knock the victim's weapon out: it flips away and lands as a pickup.
   Weapon moves (`.armed`) scale with the weapon's power; unarmed weapon moves do 0.7x.
-- Next: tune damage/knockback, hit reaction animations.
-- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` / `-divetest` (scripted hit cases, log `HIT` lines), `-crowdtest` (hero can't die; logs `CROWD` spacing metrics), `-itemtest` (scripted pickup / swap / disarm cases).
+- Weapon move overrides: a `Weapon` can carry `moves: [MoveKey: Move]` that replace single entries of the default table while held
+  (everything else falls through). Bow: grounded back swipe = shoot (draw 0.18s, arrow flies straight ahead along the lane at 800pt/s,
+  7 dmg, jump over it). Ammo is per weapon (8 start, 12 max, travels with a dropped bow); a quiver pickup adds 6 and is ignored
+  without a bow or at full ammo. A hit during the draw cancels the shot and spends no arrow. Bow melee power is 0.6x.
+- Archers (enemies holding a ranged weapon with ammo) skip the melee queue: they hold 270-470pt out, backpedal while still facing you
+  (hurrying when you're close), slide into your lane, pause, then shoot with the same back-swipe gesture. Pressed at point-blank for
+  ~1s with planted feet they jab weakly. Out of arrows, they fall back to the normal melee brain.
+- Next: tune damage/knockback, hit reaction animations, more weapons (whip, spear, hammer, shield).
+- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` / `-divetest` (scripted hit cases, log `HIT` lines), `-crowdtest` (hero can't die; logs `CROWD` spacing metrics), `-itemtest` (scripted pickup / swap / disarm cases), `-bowtest` (shooting, ammo, dodging, archers).

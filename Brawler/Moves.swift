@@ -16,6 +16,9 @@ enum JumpTuning {
     static let ease: CGFloat = 2.5      // 1 = linear, higher = more tension at the bottom and top
 }
 
+/// Context + gesture. Weapons use these to override single entries of the default move table.
+struct MoveKey: Hashable { let context: MoveContext; let trigger: Trigger }
+
 /// A gesture normalised to the hero's facing: swipes become forward / back.
 enum Trigger: String, Hashable {
     case tap, up, down, forward, back
@@ -51,6 +54,7 @@ struct Hit {
 }
 
 extension Hit {
+    static let arrow = Hit(start: 0, duration: 0, reach: 0...0, depth: 30, heightTolerance: 60, damage: 7, knockback: 160, stun: 0.3)
     /// Strong hits (launchers, spikes, heavy knockback) knock the weapon out of the victim's hand.
     var isStrong: Bool { launch != 0 || knockback >= 500 }
 
@@ -85,13 +89,15 @@ struct Move {
     var hits: [Hit] = []
     var usesWeapon = false           // damage scales with the equipped weapon (bare-handed is weaker)
     var grab: TimeInterval = -1      // >= 0: picks up whatever is at the fighter's feet this long into the move
+    var fire: TimeInterval = -1      // >= 0: launches `projectile` this long into the move (uses one ammo)
+    var projectile: Hit? = nil
 
     func hitting(_ h: Hit...) -> Move { var m = self; m.hits = h; return m }
     var armed: Move { var m = self; m.usesWeapon = true; return m }
 }
 
 enum MoveTable {
-    private struct Key: Hashable { let context: MoveContext; let trigger: Trigger }
+    // (see MoveKey below)
 
     // Back-swipe while grounded is intentionally absent: an open slot for future specials.
     // Animations marked (placeholder) reuse existing poses until dedicated ones exist.
@@ -140,10 +146,10 @@ enum MoveTable {
         chainTable["\(name)|\(trigger.rawValue)"]
     }
 
-    private static let table: [Key: Move] = Dictionary(
-        uniqueKeysWithValues: rows.map { (Key(context: $0.0, trigger: $0.1), $0.2) })
+    private static let table: [MoveKey: Move] = Dictionary(
+        uniqueKeysWithValues: rows.map { (MoveKey(context: $0.0, trigger: $0.1), $0.2) })
 
     static func move(_ context: MoveContext, _ trigger: Trigger) -> Move? {
-        table[Key(context: context, trigger: trigger)]
+        table[MoveKey(context: context, trigger: trigger)]
     }
 }

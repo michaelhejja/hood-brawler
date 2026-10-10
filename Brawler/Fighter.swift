@@ -5,6 +5,7 @@ struct MoveIntent {
     var direction = CGVector.zero    // unit vector, +y up
     var intensity: CGFloat = 0       // 0...1, how hard they push (walk -> run)
     var dragSpeed: CGFloat = 0       // pt/s of the thumb; faster flicks accelerate quicker
+    var facing: Bool? = nil          // AI only: face this way (true = right) regardless of where it walks (backpedalling)
 }
 
 /// Where a fighter may stand (already inset from the world edges by the level).
@@ -44,6 +45,8 @@ final class Fighter {
     let rig: HumanoidRig
     var stats: FighterStats
     var brain: Brain?                      // who is driving this fighter (player or AI)
+    weak var projectiles: ProjectileField?
+    private(set) var ammo: Int?
     weak var world: PickupField?           // the ground: where weapons drop and pickups are found
     var collectsItems = false              // only the player picks up items (weapons can be picked up by anyone)
     var lootDropped = false
@@ -70,6 +73,8 @@ final class Fighter {
     private var falling = false
     private var now: TimeInterval = 0
     private var grabAt: TimeInterval?
+    private var fireAt: TimeInterval?
+    private var pendingShot: Hit?
     private var foesNow: [Fighter] = []
     static let personalSpace: CGFloat = 46     // root motion stops this far short of an opponent
 
@@ -124,7 +129,7 @@ final class Fighter {
         airborne = false; jump = nil; vz = 0; falling = false; knock = 0; velocity = 0
         hurtUntil = 0; downUntil = 0; brakeUntil = 0; actionUntil = 0; frozenUntil = 0
         current = nil; buffered = nil; claims = [:]; loco = nil; advance = nil
-        grabAt = nil; lootDropped = false; equip(startWeapon)
+        grabAt = nil; fireAt = nil; pendingShot = nil; lootDropped = false; equip(startWeapon)
         rig.isPaused = false; rig.height = 0; rig.alpha = 1; rig.speed = 1
         rig.play(.idle)
     }
@@ -164,6 +169,7 @@ final class Fighter {
 
     func equip(_ w: Weapon?) {
         weapon = w
+        ammo = w?.ammo
         rig.setWeapon(w)
     }
 
@@ -185,7 +191,8 @@ final class Fighter {
         switch p.kind {
         case .weapon(let new):
             world.take(p)
-            if let old = weapon {
+            if var old = weapon {
+                old.ammo = ammo
                 world.launch(.weapon(old), from: rig.position, height: 30, vx: (rig.facingRight ? -1 : 1) * 90, vz: 520)
                 NSLog("ITEM %@ swapped %@ -> %@", name, old.name, new.name)
             } else {
@@ -199,13 +206,41 @@ final class Fighter {
 
     /// Knocked out of the hand: the weapon flips away from the attacker and lands on the ground.
     private func disarm(away: CGFloat) {
-        guard let w = weapon else { return }
+        guard var w = weapon else { return }
+        w.ammo = ammo                                         // the weapon keeps its remaining ammo
         equip(nil)
         world?.launch(.weapon(w), from: rig.position, height: rig.height + 70, vx: away * 190, vz: 700)
         NSLog("ITEM %@ dropped %@", name, w.name)
     }
 
     func debugSetHealth(_ h: CGFloat) { health = h }
+    func debugSetAmmo(_ n: Int) { ammo = n }
+
+    /// Holding a ranged weapon with arrows left: the AI keeps its distance and shoots instead of closing in.
+    var canShoot: Bool {
+        guard let w = weapon, w.isRanged else { return false }
+        return ammo.map { $0 > 0 } ?? true
+    }
+
+    /// Refills the quiver. False (and nothing happens) without a ranged weapon or when already full.
+    @discardableResult
+    func addAmmo(_ n: Int) -> Bool {
+        guard let w = weapon, w.isRanged, let a = ammo, a < w.capacity else { return false }
+        ammo = min(w.capacity, a + n)
+        world?.floatText("+\(ammo! - a) arrows", at: CGPoint(x: rig.position.x, y: rig.position.y + rig.height + 150),
+                         color: SKColor(red: 1, green: 0.85, blue: 0.4, alpha: 1))
+        NSLog("ITEM %@ refilled to %d arrows", name, ammo!)
+        return true
+    }
+
+    /// The arrow leaves the bow, straight ahead along the lane.
+    private func launchProjectile(_ hit: Hit) {
+        guard let projectiles else { return }
+        if let a = ammo { guard a > 0 else { return }; ammo = a - 1 }
+        let dir: CGFloat = rig.facingRight ? 1 : -1
+        projectiles.launch(from: CGPoint(x: rig.position.x + dir * 46, y: rig.position.y), height: rig.height, dir: dir, owner: self, hit: hit)
+        NSLog("ITEM %@ shot arrow, %d left", name, ammo ?? -1)
+    }
 
     /// Test hook: run a move directly, skipping the gesture / context / chain rules.
     func debugPerform(_ m: Move) { perform(m) }
@@ -242,9 +277,14 @@ final class Fighter {
             buffered = (g, bufferedAt ?? now)
             return
         }
-        // 3. Normal context lookup
-        guard let move = MoveTable.move(ctx, trigger) else {
+        // 3. Normal context lookup: the held weapon may override this gesture (e.g. a bow's back swipe shoots)
+        guard let move = weapon?.moves[MoveKey(context: ctx, trigger: trigger)] ?? MoveTable.move(ctx, trigger) else {
             lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> (nothing)"
+            return
+        }
+        if move.projectile != nil, let a = ammo, a <= 0 {
+            lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> \(move.name) (out of arrows)"
+            world?.floatText("no arrows", at: CGPoint(x: rig.position.x, y: rig.position.y + rig.height + 150), color: .white)
             return
         }
         lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> \(move.name)"
@@ -258,6 +298,8 @@ final class Fighter {
         advance = move.advance > 0
             ? (now + move.advanceStart, move.advanceDuration, move.advance, rig.facingRight ? 1 : -1, 0) : nil
         grabAt = move.grab >= 0 ? now + move.grab : nil
+        fireAt = (move.fire >= 0 && move.projectile != nil) ? now + move.fire : nil
+        pendingShot = move.projectile
         if move.lunge > 0 {
             moveDir = CGVector(dx: rig.facingRight ? 1 : -1, dy: 0)
             velocity = max(velocity, move.lunge)
@@ -341,14 +383,14 @@ final class Fighter {
 
     // MARK: Taking hits
 
-    func receive(_ hit: Hit, power: CGFloat, scale: CGFloat, from attacker: Fighter) {
+    func receive(_ hit: Hit, power: CGFloat, scale: CGFloat, from attacker: Fighter, away direction: CGFloat? = nil) {
         health = max(0, health - hit.damage * power * scale)
-        let away: CGFloat = attacker.rig.position.x <= rig.position.x ? 1 : -1
+        let away: CGFloat = direction ?? (attacker.rig.position.x <= rig.position.x ? 1 : -1)
         current = nil; claims = [:]; buffered = nil; advance = nil
         brakeUntil = 0; velocity = 0; loco = nil
         knock = away * hit.knockback * power
         rig.speed = 1
-        grabAt = nil
+        grabAt = nil; fireAt = nil; pendingShot = nil       // a hit interrupts the draw: no arrow, no ammo spent
         if hit.isStrong || dead { disarm(away: away) }       // before the reaction animation, which resets the weapon pose
 
         if airborne || hit.launch > 0 {
@@ -392,6 +434,7 @@ final class Fighter {
         if var c = current { c.start += extra; current = c }
         if var a = advance { a.from += extra; advance = a }
         if let g = grabAt { grabAt = g + extra }
+        if let f = fireAt { fireAt = f + extra }
         if var b = buffered { b.time += extra; buffered = b }
     }
 
@@ -451,10 +494,12 @@ final class Fighter {
             knock = knock > 0 ? max(0, knock - decel) : min(0, knock + decel)
             rig.zPosition = 300 - rig.position.y
         }
-        if hasInput, abs(intent.direction.dx) > 0.25 { rig.facingRight = intent.direction.dx > 0 }
+        if let f = intent.facing { if !attacking { rig.facingRight = f } }
+        else if hasInput, abs(intent.direction.dx) > 0.25 { rig.facingRight = intent.direction.dx > 0 }
 
         stepHeight(d, now: currentTime)
         if let g = grabAt, currentTime >= g { grabAt = nil; performGrab() }
+        if let f = fireAt, currentTime >= f, let h = pendingShot { fireAt = nil; pendingShot = nil; launchProjectile(h) }
         if let b = buffered {
             if currentTime - b.time > ComboTuning.buffer { buffered = nil }
             else { buffered = nil; handle(b.gesture, bufferedAt: b.time) }

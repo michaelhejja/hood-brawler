@@ -46,7 +46,7 @@ final class CrowdDirector {
         holders.removeAll { $0.fighter.dead || now - $0.since > 8 }          // never let a stuck holder block the rest
         guard holders.count < maxAttackers, now - lastGrant >= stagger else { return false }
         let tx = target.rig.position.x
-        let waiting = members.filter { !$0.dead && !$0.incapacitated && !holds($0) }
+        let waiting = members.filter { !$0.dead && !$0.incapacitated && !holds($0) && !$0.canShoot }   // archers never queue for melee
         guard let nearest = waiting.min(by: { abs($0.rig.position.x - tx) < abs($1.rig.position.x - tx) }), nearest === me
         else { return false }
         holders.append((me, now)); lastGrant = now
@@ -67,6 +67,10 @@ struct EnemyTraits {
     var chargeChance: Double = 0.25                   // per second, while far away: sprint in for a dash attack
     var retreatChance: Double = 0.25                  // after attacking: back off instead of pressing
     var comboChance: Double = 0.35                    // chance an attack is a multi-hit chain
+    var rangedMin: CGFloat = 270                      // archers back away when you get closer than this
+    var rangedMax: CGFloat = 470                      // ... and close in when you're farther than this
+    var rangedReaction: ClosedRange<Double> = 0.35...0.7   // pause before drawing
+    var shotCooldown: ClosedRange<Double> = 1.4...2.6      // rest between shots
 }
 
 /// Wait in the ring -> get a token -> close in -> pause -> attack -> recover (-> back off) -> repeat.
@@ -101,6 +105,8 @@ final class EnemyBrain: Brain {
             if case .recover = state {} else { state = .recover(until: now + .random(in: 0.4...0.9)) }
             return MoveIntent()
         }
+        if me.canShoot { director.release(me); return kite(me, target, now) }
+        ranged = .position; pressedSince = nil
         let dx = target.rig.position.x - me.rig.position.x
         let dy = target.rig.position.y - me.rig.position.y
         let toward = CGVector(dx: dx / max(hypot(dx, dy), 1), dy: dy / max(hypot(dx, dy), 1))
@@ -158,6 +164,59 @@ final class EnemyBrain: Brain {
         case .backOff(let until):
             if now >= until { state = .approach }
             return MoveIntent(direction: CGVector(dx: -toward.dx, dy: 0), intensity: traits.approachIntensity)
+        }
+    }
+
+    // MARK: Ranged (bow)
+
+    private enum RangedPhase { case position, aim(until: TimeInterval), rest(until: TimeInterval) }
+    private var ranged = RangedPhase.position
+    private var nextShot: TimeInterval = 0
+    private var nextJab: TimeInterval = 0
+    private var pressedSince: TimeInterval?       // when the player first got inside striking range; nil = comfortable
+
+    /// Stay out at range, line up in the target's lane, pause, shoot (a back swipe, same gesture as the player's),
+    /// rest. Rushed to point-blank range, it jabs weakly instead.
+    private func kite(_ me: Fighter, _ target: Fighter, _ now: TimeInterval) -> MoveIntent {
+        let dx = target.rig.position.x - me.rig.position.x
+        let dy = target.rig.position.y - me.rig.position.y
+        let faceRight = dx >= 0
+        let dist = abs(dx)
+        switch ranged {
+        case .aim(let until):
+            if dist < traits.rangedMin * 0.6 { ranged = .position; return MoveIntent(facing: faceRight) }   // rushed mid-draw: abort and back off
+            guard now >= until else { return MoveIntent(facing: faceRight) }
+            me.face(towardX: target.rig.position.x)
+            me.handle(.swipe(faceRight ? .left : .right))             // back swipe = shoot; forward is where the target is
+            nextShot = now + .random(in: traits.shotCooldown)
+            ranged = .rest(until: now + 0.5)
+            return MoveIntent(facing: faceRight)
+
+        case .rest(let until):
+            if now >= until { ranged = .position }
+            return MoveIntent(facing: faceRight)
+
+        case .position:
+            if dist < traits.rangedMin { pressedSince = pressedSince ?? now } else { pressedSince = nil }
+            // Only fights back with a weak jab once it has been pressed for a while and the player is still on top of it
+            if dist < 120, abs(dy) < traits.laneTolerance + 14, let since = pressedSince, now - since > 0.9 {
+                // Planted feet only: jabbing while backpedalling would count as running and become a dash attack toward you
+                if me.velocity < 120, now >= nextJab { nextJab = now + 1.1; me.face(towardX: target.rig.position.x); send(.tap, me) }
+                return MoveIntent(facing: faceRight)
+            }
+            var dir = CGVector.zero
+            var intensity: CGFloat = 0
+            if dist < traits.rangedMin { dir.dx = faceRight ? -1 : 1; intensity = dist < traits.rangedMin * 0.7 ? 0.95 : 0.6 }   // backpedal, still facing you; hurries when close
+            else if dist > traits.rangedMax { dir.dx = faceRight ? 1 : -1; intensity = 0.55 }
+            let aligned = abs(dy) < traits.laneTolerance
+            if !aligned { dir.dy = dy > 0 ? 1 : -1; intensity = max(intensity, 0.45) }              // slide into your lane
+            if aligned, dist >= traits.rangedMin * 0.7, dist <= traits.rangedMax + 120, now >= nextShot {
+                ranged = .aim(until: now + .random(in: traits.rangedReaction))
+                return MoveIntent(facing: faceRight)
+            }
+            let len = hypot(dir.dx, dir.dy)
+            if len > 0 { dir = CGVector(dx: dir.dx / len, dy: dir.dy / len) }
+            return MoveIntent(direction: dir, intensity: len > 0 ? intensity : 0, facing: faceRight)
         }
     }
 

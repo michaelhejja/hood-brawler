@@ -43,13 +43,17 @@ final class GameScene: SKScene {
         hero.logPrefix = ""
         addChild(hero.rig)
         addChild(pickups)
+        addChild(arrows)
         hero.world = pickups
+        hero.projectiles = arrows
         hero.collectsItems = true
 
         for (x, y) in [(900, 90), (1150, 170), (1450, 120)] as [(CGFloat, CGFloat)] { spawnEnemy(x: x, y: y) }
         if !testMode {
             pickups.place(.weapon(Weapons.axe), at: CGPoint(x: 480, y: 100))
             pickups.place(.item(Items.food), at: CGPoint(x: 800, y: 70))
+            pickups.place(.weapon(Weapons.bow), at: CGPoint(x: 620, y: 150))
+            pickups.place(.item(Items.quiver), at: CGPoint(x: 720, y: 160))
         }
         hero.rig.zPosition = 300 - hero.rig.position.y
 
@@ -73,10 +77,12 @@ final class GameScene: SKScene {
     // MARK: Enemies
 
     private let args = ProcessInfo.processInfo.arguments
-    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") }
+    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") }
     private var nextCrowdLog: TimeInterval = 0
     private let crowd = CrowdDirector()
     private let pickups = PickupField()
+    private let arrows = ProjectileField()
+    private let archerChance = 0.3           // chance a spawned skeleton carries a bow
     private let foodDropChance = 0.3          // chance a KO'd enemy drops food
     private var bars: [ObjectIdentifier: HealthBar] = [:]
     private let heroBar = HealthBar(width: 300, height: 14)
@@ -86,6 +92,8 @@ final class GameScene: SKScene {
         let e = Fighter(name: "skeleton", skin: SkeletonSkin(), stats: .skeleton)
         e.team = 1
         e.world = pickups
+        e.projectiles = arrows
+        if !testMode, Double.random(in: 0...1) < archerChance { e.equip(Weapons.bow) }
         if !args.contains("-passive"), !testMode { e.brain = EnemyBrain(director: crowd) }
         e.rig.scaleFactor = 1.3
         e.rig.facingRight = false
@@ -161,6 +169,7 @@ final class GameScene: SKScene {
     private func updateCombat(now: TimeInterval) {
         logCrowd(now: now)
         for c in Combat.resolve([hero] + enemies) { spawnImpact(at: c.point, damage: c.damage) }
+        for c in Combat.resolveProjectiles(arrows, [hero] + enemies) { spawnImpact(at: c.point, damage: c.damage) }
 
         // Health bars float over enemies (hidden at full health); the hero's sits at the bottom of the screen
         for e in enemies {
@@ -283,12 +292,14 @@ final class GameScene: SKScene {
         if ProcessInfo.processInfo.arguments.contains("-hittest") { runHitTest() }
         if ProcessInfo.processInfo.arguments.contains("-divetest") { runDiveTest() }
         if ProcessInfo.processInfo.arguments.contains("-itemtest") { runItemTest() }
+        if ProcessInfo.processInfo.arguments.contains("-bowtest") { runBowTest() }
         if ProcessInfo.processInfo.arguments.contains("-crowdtest") { hero.stats.maxHealth = 1_000_000; hero.restore() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
             run(.sequence([.wait(forDuration: 1), .run { [weak self] in   // slow-mo, hero and skeletons side by side
                 guard let self else { return }
+                if a == .shoot { ([self.hero] + self.enemies).forEach { $0.equip(Weapons.bow) } }
                 for r in ([self.hero] + self.enemies).map(\.rig) {
                     if a == .slam || a == .uppercut { r.height = 150 }
                     r.speed = 0.08; r.play(a)
@@ -340,6 +351,79 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-bowtest`: shooting, ammo, arrow hits, dodging, interrupts, quiver and swapping. Prints `BOWTEST` lines.
+    private func runBowTest() {
+        guard let e = enemies.first else { return }
+        func fire(_ g: Gesture) -> SKAction { .run { [weak self] in self?.hero.handle(g) } }
+        func w(_ t: Double) -> SKAction { .wait(forDuration: t) }
+        func act(_ f: @escaping (Fighter, Fighter) -> Void) -> SKAction { .run { [weak self] in if let self { f(self.hero, e) } } }
+        func report(_ label: String) -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            let ground = self.pickups.pickups.map { "\($0.label)@\(Int($0.position.x))" }.joined(separator: ",")
+            NSLog("BOWTEST %@ | hero hp=%ld weapon=%@ ammo=%@ | enemy hp=%ld weapon=%@ ammo=%@ | arrows in flight=%ld | ground=[%@]", label,
+                  Int(self.hero.health), self.hero.weapon?.name ?? "none", self.hero.ammo.map(String.init) ?? "-",
+                  Int(e.health), e.weapon?.name ?? "none", e.ammo.map(String.init) ?? "-", self.arrows.arrows.count, ground)
+        } }
+        func reset(_ title: String, gap: CGFloat = 400, dy: CGFloat = 0, bow: Bool = true) -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            NSLog("BOWTEST --- %@", title)
+            self.pickups.clear(); self.arrows.clear()
+            self.hero.restore(); self.hero.rig.position = CGPoint(x: 667, y: 120); self.hero.rig.facingRight = true
+            if bow { self.hero.equip(Weapons.bow) }
+            e.restore(); e.rig.position = CGPoint(x: 667 + gap, y: 120 + dy); e.rig.facingRight = false
+        } }
+        let back: Gesture = .swipe(.left)       // hero faces right, so left = back
+        var steps: [SKAction] = [
+            w(1),
+            reset("A back swipe shoots, enemy takes an arrow"), fire(back), w(0.3), report("mid-draw"), w(1.2), report("expect ammo 7, enemy hp 35.8"),
+            reset("B arrow misses in another lane", dy: 80), fire(back), w(1.5), report("expect ammo 7, enemy hp 40"),
+            reset("C jump over the arrow", gap: 300),
+            act { _, e in e.equip(Weapons.bow); e.debugSetAmmo(3); e.rig.facingRight = false },
+            act { _, e in e.handle(.swipe(.right)) }, fire(.swipe(.up)), w(1.4), report("expect hero hp 100 (arrow passed under)"),
+            reset("D out of arrows", bow: true), act { h, _ in h.debugSetAmmo(0) }, fire(back), w(0.8), report("expect no shot, ammo 0"),
+            reset("E melee still works with bow", gap: 90), fire(.tap), w(1.0), report("expect jab 6*1.0 = 6 dmg"),
+            reset("F weak weapon moves", gap: 90), fire(.swipe(.right)), w(1.2), report("expect hook 12*0.6 = 7.2 dmg"),
+            reset("G quiver refills"), act { h, _ in h.debugSetAmmo(2) }, .run { [weak self] in self?.pickups.place(.item(Items.quiver), at: CGPoint(x: 697, y: 120)) },
+            fire(.swipe(.down)), w(0.9), report("expect ammo 8, quiver gone"),
+            reset("H quiver ignored without a bow", bow: false), .run { [weak self] in self?.pickups.place(.item(Items.quiver), at: CGPoint(x: 697, y: 120)) },
+            fire(.swipe(.down)), w(0.9), report("expect quiver stays"),
+            reset("I full quiver is not wasted"), act { h, _ in h.debugSetAmmo(12) }, .run { [weak self] in self?.pickups.place(.item(Items.quiver), at: CGPoint(x: 697, y: 120)) },
+            fire(.swipe(.down)), w(0.9), report("expect quiver stays, ammo 8"),
+            reset("J hit mid-draw cancels the shot", gap: 90), fire(back), w(0.05),
+            act { _, e in e.debugPerform(MoveTable.move(.grounded, .tap)!) }, w(1.2), report("expect ammo 8 (no arrow spent)"),
+            reset("K swap bow for sword keeps arrows on the bow"), act { h, _ in h.debugSetAmmo(5) },
+            .run { [weak self] in self?.pickups.place(.weapon(Weapons.sword), at: CGPoint(x: 697, y: 120)) },
+            fire(.swipe(.down)), w(1.0), report("expect sword, bow on ground"),
+            .run { [weak self] in
+                if let bow = self?.pickups.pickups.first(where: { $0.label == "bow" }) {
+                    if case .weapon(let wp) = bow.kind { NSLog("BOWTEST dropped bow carries ammo=%@", wp.ammo.map(String.init) ?? "-") }
+                }
+            },
+            reset("L enemy archer kites a hero who does not move"),
+            act { _, e in e.equip(Weapons.bow); e.brain = EnemyBrain(director: CrowdDirector()); e.rig.position.x = 667 + 300 }, w(10),
+            report("archer after 10s")
+        ]
+
+        /// The hero walks (or runs) straight at an archer without attacking; logs the gap twice a second.
+        func approach(_ title: String, tag: String, running: Bool, samples: Int) {
+            steps.append(reset(title, gap: 450))
+            steps.append(act { _, e in e.equip(Weapons.bow); e.rig.position.x = 667 + 450 })
+            steps.append(.run { [weak self] in self?.input.keyDown("d", run: running) })
+            for _ in 0..<samples {
+                steps.append(w(0.5))
+                steps.append(.run { [weak self] in
+                    guard let self else { return }
+                    NSLog("BOWTEST %@ gap=%.0f archer_hp=%.0f archer_ammo=%@ hero_hp=%.0f", tag, e.rig.position.x - self.hero.rig.position.x,
+                          e.health, e.ammo.map(String.init) ?? "-", self.hero.health)
+                })
+            }
+            steps.append(.run { [weak self] in self?.input.keyUp("d") })
+        }
+        approach("M hero walks at an archer", tag: "M", running: false, samples: 14)
+        approach("N hero RUNS at an archer", tag: "N", running: true, samples: 10)
+        run(.sequence(steps))
     }
 
     /// Launch with `-itemtest`: pickups, swaps, disarming and bare-handed damage. Prints `ITEMTEST` state lines.
@@ -516,7 +600,7 @@ final class GameScene: SKScene {
             dot.position = c
             debugLayer.addChild(ring); debugLayer.addChild(dot)
         }
-        debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  hp \(Int(hero.health))  wpn \(hero.weapon?.name ?? "none")  |  last: \(hero.lastGesture)"
+        debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  hp \(Int(hero.health))  wpn \(hero.weapon?.name ?? "none")\(hero.ammo.map { " x\($0)" } ?? "")  |  last: \(hero.lastGesture)"
     }
 
     // MARK: Loop
@@ -532,6 +616,7 @@ final class GameScene: SKScene {
         for e in enemies { e.step(now: currentTime, dt: dt, bounds: bounds, foes: [hero]) }
         separateEnemies(dt: CGFloat(dt), bounds: bounds)
         pickups.step(dt: CGFloat(dt), minX: level.minX + 20, maxX: level.maxX - 20)
+        arrows.step(dt: CGFloat(dt), minX: level.minX, maxX: level.maxX)
         updateCombat(now: currentTime)
         updateDebug()
 

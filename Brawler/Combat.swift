@@ -29,6 +29,27 @@ enum Combat {
         return contacts
     }
 
+    /// Arrows hit the first opposing fighter whose body they reach (same lane band, within height tolerance).
+    static func resolveProjectiles(_ field: ProjectileField, _ fighters: [Fighter]) -> [Contact] {
+        var contacts: [Contact] = []
+        for a in field.arrows where !a.spent {
+            for t in fighters where t.team != a.owner.team && t.hittable {
+                guard abs(a.position.x - t.rig.position.x) <= bodyHalfWidth + 8,
+                      abs(a.lane - t.rig.position.y) <= a.hit.depth,
+                      abs(a.height - t.rig.height) <= a.hit.heightTolerance else { continue }
+                let scale = a.owner.stats.damageScale
+                let dmg = a.hit.damage * scale
+                t.receive(a.hit, power: 1, scale: scale, from: a.owner, away: a.dir)
+                t.hitStop(0.04)
+                contacts.append(Contact(point: CGPoint(x: t.rig.position.x - a.dir * 10, y: t.rig.position.y + t.rig.height + 62), damage: dmg))
+                NSLog("HIT %@ -> %@ [arrow] dmg %.1f hp %.1f%@ at x%.0f y%.0f", a.owner.name, t.name, dmg, t.health, t.dead ? " KO" : "", t.rig.position.x, t.rig.position.y)
+                field.remove(a, hit: true)
+                break
+            }
+        }
+        return contacts
+    }
+
     static func overlaps(_ hit: Hit, from a: Fighter, to t: Fighter) -> Bool {
         let f: CGFloat = a.rig.facingRight ? 1 : -1
         let dx = (t.rig.position.x - a.rig.position.x) * f

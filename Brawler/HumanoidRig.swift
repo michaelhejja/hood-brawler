@@ -9,8 +9,9 @@ enum CharacterAnimation: String, CaseIterable, Identifiable {
     case uppercut              // launcher: cock low, swing up, head thrown back
     case knockdown             // blasted flat: topples backwards and stays down
     case pickup                // crouch and reach for the ground
+    case shoot                 // draw a bow and loose an arrow forward
     var id: String { rawValue }
-    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .uppercut, .smash, .pickup, .hit, .slam]
+    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .uppercut, .smash, .pickup, .shoot, .hit, .slam]
     var title: String { rawValue.capitalized }
 }
 
@@ -124,6 +125,7 @@ final class HumanoidRig: SKNode {
         case .uppercut: uppercut()
         case .knockdown: knockdown()
         case .pickup: pickup()
+        case .shoot: shoot()
         case .slamLand: slamLand()
         }
     }
@@ -270,6 +272,19 @@ final class HumanoidRig: SKNode {
         track(legBack, [(-0.3, 0.1)])
         body.run(pose(y: restY, sx: 0.92, sy: 1.1, d: 0.1))
         streaks()
+    }
+
+    /// Bow shot (0.45s): the weapon arm points straight ahead with the bow upright, the off hand draws the string back,
+    /// release at 0.18s (the scene launches the arrow then), then everything settles.
+    private func shoot() {
+        track(armWeapon, [(1.5, 0.12), (nil, 0.06), (nil, 0.12), (armRest, 0.15)])
+        track(sword,     [(4.712, 0.1), (nil, 0.2), (swordRest, 0.15)])              // bow upright: -90 degrees
+        track(armOff,    [(-1.45, 0.14), (nil, 0.04), (0.2, 0.05), (nil, 0.08), (0, 0.14)])
+        track(body,      [(0.08, 0.14), (nil, 0.04), (-0.05, 0.05), (nil, 0.08), (0, 0.14)])
+        track(legFront,  [(0.25, 0.12), (nil, 0.2), (0, 0.13)])
+        track(legBack,   [(-0.25, 0.12), (nil, 0.2), (0, 0.13)])
+        body.run(.sequence([.wait(forDuration: 0.45), returnToIdle]))
+        sword.childNode(withName: "nocked")?.run(.sequence([.wait(forDuration: 0.06), .unhide(), .wait(forDuration: 0.12), .hide()]))
     }
 
     /// Crouch with the torso pitched forward and the front arm hanging straight down (world-vertical) to scoop something up.

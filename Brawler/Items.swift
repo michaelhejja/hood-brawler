@@ -6,7 +6,12 @@ import SpriteKit
 struct Weapon {
     let name: String
     var power: CGFloat = 1          // multiplies the damage of weapon moves (hook family, uppercut, slams)
+    var ammo: Int? = nil            // nil = no ammo system; otherwise shots left (travels with the weapon when dropped)
+    var capacity = 12               // most ammo it can hold
+    var moves: [MoveKey: Move] = [:]   // overrides of the default move table while this weapon is held
     let make: () -> SKNode
+
+    var isRanged: Bool { moves.values.contains { $0.projectile != nil } }
 }
 
 /// A consumable. `apply` returns true when it was used up; false leaves it on the ground (e.g. food at full health).
@@ -50,6 +55,55 @@ enum Weapons {
         handle.addChild(styled(SKShapeNode(path: p), SKColor(white: 0.72, alpha: 1), line: 3))
         return handle
     }
+
+    /// Weak in melee (0.6x). A back swipe draws and looses an arrow straight ahead; every other gesture is unchanged.
+    static let bow = Weapon(name: "bow", power: 0.6, ammo: 8, capacity: 12, moves: [
+        MoveKey(context: .grounded, trigger: .back):
+            Move(name: "shoot", animation: .shoot, lock: 0.45, fire: 0.18, projectile: .arrow)
+    ]) {
+        let bow = SKNode()
+        let limb = CGMutablePath()
+        limb.move(to: CGPoint(x: -3, y: -32)); limb.addQuadCurve(to: CGPoint(x: -3, y: 32), control: CGPoint(x: 26, y: 0))
+        let outline = SKShapeNode(path: limb)
+        outline.strokeColor = ink; outline.lineWidth = 11; outline.lineCap = .round
+        let wood = SKShapeNode(path: limb)
+        wood.strokeColor = SKColor(red: 0.62, green: 0.40, blue: 0.22, alpha: 1); wood.lineWidth = 5; wood.lineCap = .round
+        let str = CGMutablePath()
+        str.move(to: CGPoint(x: -3, y: -32)); str.addLine(to: CGPoint(x: -3, y: 32))
+        let string = SKShapeNode(path: str)
+        string.strokeColor = SKColor(white: 0.95, alpha: 1); string.lineWidth = 2
+        [outline, wood, string].forEach(bow.addChild)
+
+        // Shown during the draw: string pulled back with an arrow nocked
+        let nocked = SKNode(); nocked.name = "nocked"; nocked.isHidden = true; nocked.zPosition = 1
+        let pull = CGMutablePath()
+        pull.move(to: CGPoint(x: -3, y: -32)); pull.addLine(to: CGPoint(x: -20, y: 0)); pull.addLine(to: CGPoint(x: -3, y: 32))
+        let pulled = SKShapeNode(path: pull)
+        pulled.strokeColor = SKColor(white: 0.95, alpha: 1); pulled.lineWidth = 2
+        nocked.addChild(pulled)
+        nocked.addChild(Weapons.arrowArt(scale: 0.8, at: CGPoint(x: 4, y: 0)))
+        bow.addChild(nocked)
+        return bow
+    }
+
+    /// A horizontal arrow pointing +x, centered on the origin.
+    static func arrowArt(scale: CGFloat = 1, at p: CGPoint = .zero) -> SKNode {
+        let arrow = SKNode()
+        let shaft = styled(SKShapeNode(rect: CGRect(x: -24, y: -2.5, width: 44, height: 5), cornerRadius: 2),
+                           SKColor(red: 0.72, green: 0.56, blue: 0.34, alpha: 1), line: 3)
+        let head = CGMutablePath()
+        head.move(to: CGPoint(x: 18, y: -8)); head.addLine(to: CGPoint(x: 36, y: 0)); head.addLine(to: CGPoint(x: 18, y: 8)); head.closeSubpath()
+        let tip = styled(SKShapeNode(path: head), SKColor(white: 0.85, alpha: 1), line: 3)
+        for sy: CGFloat in [-1, 1] {
+            let f = CGMutablePath()
+            f.move(to: CGPoint(x: -20, y: 0)); f.addLine(to: CGPoint(x: -34, y: 9 * sy))
+            f.addLine(to: CGPoint(x: -26, y: 9 * sy)); f.addLine(to: CGPoint(x: -12, y: 0)); f.closeSubpath()
+            arrow.addChild(styled(SKShapeNode(path: f), SKColor(red: 0.85, green: 0.25, blue: 0.25, alpha: 1), line: 2))
+        }
+        [shaft, tip].forEach(arrow.addChild)
+        arrow.setScale(scale); arrow.position = p
+        return arrow
+    }
 }
 
 enum Items {
@@ -64,6 +118,20 @@ enum Items {
         [shine, stem, leaf].forEach(apple.addChild)
         return apple
     }, apply: { $0.heal(25) })
+
+    /// Six arrows. Only used if you're holding a bow with room in the quiver.
+    static let quiver = Item(name: "quiver", make: {
+        let q = styled(SKShapeNode(rect: CGRect(x: -9, y: -14, width: 18, height: 28), cornerRadius: 6),
+                       SKColor(red: 0.5, green: 0.32, blue: 0.18, alpha: 1), line: 3)
+        for dx: CGFloat in [-5, 0, 5] {
+            let shaft = styled(SKShapeNode(rect: CGRect(x: dx - 1.2, y: 10, width: 2.4, height: 14)), SKColor(red: 0.72, green: 0.56, blue: 0.34, alpha: 1), line: 1.5)
+            let tip = CGMutablePath()
+            tip.move(to: CGPoint(x: dx - 3.5, y: 22)); tip.addLine(to: CGPoint(x: dx, y: 29)); tip.addLine(to: CGPoint(x: dx + 3.5, y: 22)); tip.closeSubpath()
+            q.addChild(shaft); q.addChild(styled(SKShapeNode(path: tip), SKColor(white: 0.85, alpha: 1), line: 1.5))
+        }
+        q.zRotation = 0.25
+        return q
+    }, apply: { $0.addAmmo(6) })
 }
 
 // MARK: - World objects
@@ -182,4 +250,56 @@ final class PickupField: SKNode {
                              .removeFromParent()]))
         }
     }
+}
+
+
+// MARK: - Projectiles
+
+/// An arrow in flight. It flies level along its lane, so jumping over it works.
+final class Projectile: SKNode {
+    let owner: Fighter
+    let hit: Hit
+    let dir: CGFloat
+    let lane: CGFloat
+    let height: CGFloat
+    fileprivate(set) var travelled: CGFloat = 0
+    var spent = false
+
+    init(owner: Fighter, hit: Hit, dir: CGFloat, x: CGFloat, lane: CGFloat, height: CGFloat) {
+        self.owner = owner; self.hit = hit; self.dir = dir; self.lane = lane; self.height = height
+        super.init()
+        addChild(Weapons.arrowArt())
+        xScale = dir
+        position = CGPoint(x: x, y: lane + height + 62)
+        zPosition = 305 - lane
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+final class ProjectileField: SKNode {
+    static let speed: CGFloat = 800
+    static let maxRange: CGFloat = 1100
+    private(set) var arrows: [Projectile] = []
+
+    func launch(from p: CGPoint, height: CGFloat, dir: CGFloat, owner: Fighter, hit: Hit) {
+        let a = Projectile(owner: owner, hit: hit, dir: dir, x: p.x, lane: p.y, height: height)
+        arrows.append(a); addChild(a)
+    }
+
+    func step(dt: CGFloat, minX: CGFloat, maxX: CGFloat) {
+        for a in arrows {
+            let d = Self.speed * dt
+            a.position.x += a.dir * d; a.travelled += d
+            if a.travelled > Self.maxRange || a.position.x < minX - 100 || a.position.x > maxX + 100 { remove(a, hit: false) }
+        }
+    }
+
+    func remove(_ a: Projectile, hit: Bool) {
+        guard let i = arrows.firstIndex(where: { $0 === a }) else { return }
+        arrows.remove(at: i); a.spent = true
+        a.run(.sequence([hit ? .group([.scale(to: 0.6, duration: 0.08), .fadeOut(withDuration: 0.08)]) : .fadeOut(withDuration: 0.25),
+                         .removeFromParent()]))
+    }
+
+    func clear() { arrows.forEach { $0.removeFromParent() }; arrows = [] }
 }

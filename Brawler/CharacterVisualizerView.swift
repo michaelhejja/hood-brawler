@@ -99,6 +99,8 @@ struct CharacterVisualizerView: View {
                 .tint(selected == animation ? .orange : .gray)
             }
             Divider().frame(height: 28)
+            Button("Bow") { scene.character.setWeapon(Weapons.bow) }.buttonStyle(.bordered)
+            Button("Sword") { scene.character.setWeapon(Weapons.sword) }.buttonStyle(.bordered)
             Button("Flip") { scene.character.facingRight.toggle() }
                 .buttonStyle(.bordered)
             Image(systemName: "tortoise")
