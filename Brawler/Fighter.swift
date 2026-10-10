@@ -286,7 +286,7 @@ final class Fighter {
             else { vz = max(vz, 260) }
             jump = nil; airborne = true; falling = true; launched = true
             rig.play(.knockdown)
-        } else if hit.launch < 0 || hit.knockback * power >= 500 || dead {
+        } else if hit.knockback * power >= 500 || dead {
             lieDown(for: hit.stun + 0.4)                    // blasted flat
         } else {
             hurtUntil = now + hit.stun                      // ordinary flinch

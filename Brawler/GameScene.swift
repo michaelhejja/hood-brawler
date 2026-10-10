@@ -66,6 +66,7 @@ final class GameScene: SKScene {
     // MARK: Enemies
 
     private let args = ProcessInfo.processInfo.arguments
+    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") }
     private var bars: [ObjectIdentifier: HealthBar] = [:]
     private let heroBar = HealthBar(width: 300, height: 14)
     private var nextSpawn: TimeInterval = 0
@@ -73,7 +74,7 @@ final class GameScene: SKScene {
     private func spawnEnemy(x: CGFloat, y: CGFloat) {
         let e = Fighter(name: "skeleton", skin: SkeletonSkin(), stats: .skeleton)
         e.team = 1
-        if !args.contains("-passive"), !args.contains("-hittest") { e.brain = EnemyBrain() }
+        if !args.contains("-passive"), !testMode { e.brain = EnemyBrain() }
         e.rig.scaleFactor = 1.3
         e.rig.facingRight = false
         e.rig.position = CGPoint(x: x, y: y)
@@ -126,13 +127,13 @@ final class GameScene: SKScene {
 
         // Clear out the dead; keep the playground stocked
         enemies.removeAll { e in
-            guard e.dead, let since = e.deadSince, now - since > 1.5, !args.contains("-hittest") else { return false }
+            guard e.dead, let since = e.deadSince, now - since > 1.5, !testMode else { return false }
             e.rig.run(.sequence([.fadeOut(withDuration: 0.3), .removeFromParent()]))
             bars.removeValue(forKey: ObjectIdentifier(e))?.removeFromParent()
             return true
         }
         if hero.dead, let since = hero.deadSince, now - since > 2.5 { hero.restore() }
-        if !args.contains("-hittest"), !args.contains("-passive"), enemies.count < 3, now >= nextSpawn {
+        if !testMode, !args.contains("-passive"), enemies.count < 3, now >= nextSpawn {
             nextSpawn = now + 3
             spawnEnemy(x: min(level.maxX - 100, hero.rig.position.x + size.width * 0.8), y: .random(in: 40...180))
         }
@@ -226,6 +227,7 @@ final class GameScene: SKScene {
             for (i, e) in enemies.enumerated() { e.logPrefix = "\(e.name)#\(i): " }
         }
         if ProcessInfo.processInfo.arguments.contains("-hittest") { runHitTest() }
+        if ProcessInfo.processInfo.arguments.contains("-divetest") { runDiveTest() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
@@ -282,6 +284,25 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-divetest`: jump, hang, dive onto a standing skeleton at several offsets. Logs every hit with the move that caused it.
+    private func runDiveTest() {
+        guard let e = enemies.first else { return }
+        func fire(_ g: Gesture) -> SKAction { .run { [weak self] in self?.hero.handle(g) } }
+        func w(_ t: Double) -> SKAction { .wait(forDuration: t) }
+        func reset(_ title: String, gap: CGFloat, dy: CGFloat = 0) -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            NSLog("HITTEST --- %@", title)
+            self.hero.restore(); self.hero.rig.position = CGPoint(x: 667, y: 120); self.hero.rig.facingRight = true
+            e.restore(); e.rig.position = CGPoint(x: 667 + gap, y: 120 + dy); e.rig.facingRight = false
+        } }
+        var steps: [SKAction] = [w(1)]
+        for (gap, dy) in [(0, 0), (40, 0), (80, 0), (120, 0), (160, 0), (60, 30), (60, 60), (-60, 0)] as [(CGFloat, CGFloat)] {
+            steps += [reset("dive onto skeleton: gap \(Int(gap)) lane \(Int(dy))", gap: gap, dy: dy),
+                      fire(.swipe(.up)), w(0.5), fire(.swipe(.down)), w(1.6)]
+        }
+        run(.sequence(steps))
     }
 
     /// Launch with `-hittest`: one passive skeleton in front of the hero; each case resets both and fires gestures.
