@@ -142,10 +142,18 @@ final class Fighter {
         return !c.move.hits.isEmpty && now <= c.start + c.move.lock
     }
 
+    /// The combo chain is still open after a hitting move (live move plus its chain window).
+    private var comboOpen: Bool {
+        guard let c = current, !incapacitated else { return false }
+        return !c.move.hits.isEmpty && now <= c.start + c.move.lock + c.move.window
+    }
+
     /// While attacking, don't carry through an opponent: stop at arm's length so the next move still connects.
-    private func stopShort(from x0: CGFloat, to x1: CGFloat, dir: CGFloat) -> CGFloat {
+    /// `staggeredOnly`: after the attack ends but the chain is open, only hold back for enemies we just hit,
+    /// so a held run can't carry the hero past the target before the follow-up lands.
+    private func stopShort(from x0: CGFloat, to x1: CGFloat, dir: CGFloat, staggeredOnly: Bool = false) -> CGFloat {
         var x = x1
-        for f in foesNow where f.hittable && abs(f.rig.position.y - rig.position.y) < 40 {
+        for f in foesNow where f.hittable && (!staggeredOnly || f.isHurt || f.launched) && abs(f.rig.position.y - rig.position.y) < 40 {
             let ahead = (f.rig.position.x - x0) * dir
             guard ahead > -10 else { continue }                     // already past them: not blocked
             x = dir > 0 ? min(x, max(x0, f.rig.position.x - Fighter.personalSpace))
@@ -307,6 +315,7 @@ final class Fighter {
             moveDir = CGVector(dx: rig.facingRight ? 1 : -1, dy: 0)
             velocity = max(velocity, move.lunge)
         }
+        if move.plant { velocity = 0 }
         brakeUntil = move.brake > 0 ? now + move.brake : 0   // any new move cancels a skid / plant
         if move.slam { jump = nil; vz = -stats.slamVZ; falling = true }
 
@@ -478,7 +487,9 @@ final class Fighter {
         }
         if velocity > 0 {
             var nx = rig.position.x + moveDir.dx * velocity * d
-            if attacking { nx = stopShort(from: rig.position.x, to: nx, dir: moveDir.dx >= 0 ? 1 : -1) }   // dash attacks stop at the target
+            let runDir: CGFloat = moveDir.dx >= 0 ? 1 : -1
+            if attacking { nx = stopShort(from: rig.position.x, to: nx, dir: runDir) }                          // dash attacks stop at the target
+            else if comboOpen { nx = stopShort(from: rig.position.x, to: nx, dir: runDir, staggeredOnly: true) }  // ... and don't overshoot it afterwards
             rig.position.x = min(max(nx, bounds.minX), bounds.maxX)
             rig.position.y = min(max(rig.position.y + moveDir.dy * velocity * d, bounds.minY), bounds.maxY)
             rig.zPosition = 300 - rig.position.y

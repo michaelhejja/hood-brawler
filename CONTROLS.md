@@ -84,6 +84,8 @@ Next: hit detection, then dedicated animations for each move.
 - Uppercut reliability: openers stagger the target instead of flooring it (hook knockback 300, power dash 420; below the 500 that
   lays an enemy flat), the uppercut steps 45pt forward as it starts and reaches -10..150pt, and a launcher never causes hit-stop so
   the victim flies on the first frame. `Hit.disarm` decides who drops their weapon, independent of knockback.
-  Measured with `-uppertest -opener hook|punch|dash`: connects 12/12 after a hook, 12/12 after punch-punch, 9/12 after a power dash.
+  A run can't carry the hero past an enemy he just hit while the combo chain is open, and the uppercut plants his feet (it supplies
+  its own 45pt step), so a late uppercut after a dash still lands.
+  Measured with `-uppertest -opener hook|punch|dash` (12 timings each): connects 12/12 after a hook, 12/12 after punch-punch, 12/12 after a power dash.
 - Next: tune damage/knockback, hit reaction animations, more weapons (whip, spear, hammer, shield).
 - Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` / `-divetest` (scripted hit cases, log `HIT` lines), `-crowdtest` (hero can't die; logs `CROWD` spacing metrics), `-itemtest` (scripted pickup / swap / disarm cases), `-bowtest` (shooting, ammo, dodging, archers), `-fxtest` (camera zoom / slow-mo per move), `-nofx`, `-fxhold`, `-uppertest` / `-juggletest` / `-launchtest` (uppercut + slam probes) (stretch the peak for screenshots).

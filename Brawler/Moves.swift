@@ -83,6 +83,7 @@ struct Move {
     var jumpFall = JumpTuning.fall
     var jumpHang = JumpTuning.hang
     var slam = false                 // dive to the ground
+    var plant = false                // kills horizontal run momentum when it starts (the move supplies its own travel)
     var brake: TimeInterval = 0      // > 0 forces a hard stop for this long (skid)
     var power: CGFloat = 1           // relative damage / knockback (used once hit detection exists)
     var cancelAt = ComboTuning.cancelAt
@@ -127,7 +128,7 @@ enum MoveTable {
     /// Running ground slam. Same shockwave and knockback as the air slam, a bit less powerful.
     static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, advance: 150, advanceStart: 0, advanceDuration: 0.27, brake: 0.4, power: 0.7).hitting(.smash).armed.emphasized(.heavy)
 
-    private static let uppercut = Move(name: "uppercut", animation: .uppercut, advance: 45, advanceStart: 0, advanceDuration: 0.12, jumpHeight: 400, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26).hitting(.uppercut).armed.emphasized(.heavy)
+    private static let uppercut = Move(name: "uppercut", animation: .uppercut, advance: 45, advanceStart: 0, advanceDuration: 0.12, jumpHeight: 400, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26, plant: true, brake: 0.3).hitting(.uppercut).armed.emphasized(.heavy)
 
     /// Landing from an air slam: a short recovery during which the combo chain is open from the first frame.
     static let slamLanding = Move(name: "slam landing", animation: .slamLand, lock: 0.3, cancelAt: 0).hitting(.shockwave).armed.emphasized(.massive)
