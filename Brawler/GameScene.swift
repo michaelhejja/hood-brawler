@@ -79,7 +79,7 @@ final class GameScene: SKScene {
     // MARK: Enemies
 
     private let args = ProcessInfo.processInfo.arguments
-    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") || args.contains("-fxtest") || args.contains("-launchtest") }
+    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") || args.contains("-fxtest") || args.contains("-launchtest") || args.contains("-juggletest") }
     private var nextCrowdLog: TimeInterval = 0
     private let crowd = CrowdDirector()
     private let pickups = PickupField()
@@ -330,6 +330,7 @@ final class GameScene: SKScene {
         if ProcessInfo.processInfo.arguments.contains("-bowtest") { runBowTest() }
         if ProcessInfo.processInfo.arguments.contains("-fxtest") { runFxTest() }
         if ProcessInfo.processInfo.arguments.contains("-launchtest") { runLaunchTest() }
+        if ProcessInfo.processInfo.arguments.contains("-juggletest") { runJuggleTest() }
         if ProcessInfo.processInfo.arguments.contains("-crowdtest") { hero.stats.maxHealth = 1_000_000; hero.restore() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
@@ -388,6 +389,38 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-juggletest`: hook, uppercut, then an air slam `slamAt` seconds after the uppercut. Logs both fighters every 50ms.
+    private func runJuggleTest() {
+        guard let e = enemies.first else { return }
+        let slamAt = Double(args.firstIndex(of: "-slamat").flatMap { Double(args[$0 + 1]) } ?? 0.5)
+        var t0: TimeInterval = 0
+        func sample() -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            NSLog("JUGGLE t=%.2f hero x=%.0f h=%.0f %@ | skel x=%.0f h=%.0f hp=%.0f launched=%d", self.gameTime - t0,
+                  self.hero.rig.position.x, self.hero.rig.height, self.hero.currentMoveName, e.rig.position.x, e.rig.height, e.health, e.launched ? 1 : 0)
+        } }
+        var steps: [SKAction] = [
+            .wait(forDuration: 1),
+            .run { [weak self] in
+                guard let self else { return }
+                self.hero.restore(); self.hero.rig.position = CGPoint(x: 667, y: 120); self.hero.rig.facingRight = true
+                e.restore(); e.rig.position = CGPoint(x: 757, y: 120); e.rig.facingRight = false
+                for other in self.enemies where other !== e { other.rig.position.x = 3000 }
+                t0 = self.gameTime
+                self.hero.handle(.swipe(.right))
+            },
+            .wait(forDuration: 0.3), .run { [weak self] in self?.hero.handle(.swipe(.up)) }
+        ]
+        var elapsed = 0.0
+        let slamStep = Int(slamAt / 0.05)
+        for i in 0..<30 {
+            steps.append(.wait(forDuration: 0.05)); elapsed += 0.05
+            if i == slamStep { steps.append(.run { [weak self] in self?.hero.handle(.swipe(.down)) }) }
+            steps.append(sample())
+        }
+        run(.sequence(steps))
     }
 
     /// Launch with `-launchtest`: hook into uppercut on a standing skeleton; reports how high it is launched and how long it stays up.
