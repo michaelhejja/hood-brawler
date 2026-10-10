@@ -13,9 +13,9 @@ enum Combat {
             for (index, hit, power) in a.activeHits {
                 for t in fighters where t.team != a.team && t.hittable {
                     guard !a.isHurt, overlaps(hit, from: a, to: t), a.claim(index, t) else { continue }
-                    let dmg = hit.damage * power * a.stats.damageScale
+                    let dmg = hit.damage * power * a.damageMultiplier
                     let move = a.currentMoveName
-                    t.receive(hit, power: power, scale: a.stats.damageScale, from: a)
+                    t.receive(hit, power: power, scale: a.damageMultiplier, from: a)
                     let stop = min(0.12, 0.03 + Double(dmg) * 0.004)      // hit-stop: heavier hits freeze longer
                     a.hitStop(stop); t.hitStop(stop)
                     let toward: CGFloat = a.rig.position.x < t.rig.position.x ? -1 : 1

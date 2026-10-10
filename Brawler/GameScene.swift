@@ -42,8 +42,15 @@ final class GameScene: SKScene {
         hero.rig.position = CGPoint(x: size.width / 2, y: 120)
         hero.logPrefix = ""
         addChild(hero.rig)
+        addChild(pickups)
+        hero.world = pickups
+        hero.collectsItems = true
 
         for (x, y) in [(900, 90), (1150, 170), (1450, 120)] as [(CGFloat, CGFloat)] { spawnEnemy(x: x, y: y) }
+        if !testMode {
+            pickups.place(.weapon(Weapons.axe), at: CGPoint(x: 480, y: 100))
+            pickups.place(.item(Items.food), at: CGPoint(x: 800, y: 70))
+        }
         hero.rig.zPosition = 300 - hero.rig.position.y
 
         // Debug overlay lives on the camera so it stays on screen
@@ -66,9 +73,11 @@ final class GameScene: SKScene {
     // MARK: Enemies
 
     private let args = ProcessInfo.processInfo.arguments
-    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") }
+    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") }
     private var nextCrowdLog: TimeInterval = 0
     private let crowd = CrowdDirector()
+    private let pickups = PickupField()
+    private let foodDropChance = 0.3          // chance a KO'd enemy drops food
     private var bars: [ObjectIdentifier: HealthBar] = [:]
     private let heroBar = HealthBar(width: 300, height: 14)
     private var nextSpawn: TimeInterval = 0
@@ -76,6 +85,7 @@ final class GameScene: SKScene {
     private func spawnEnemy(x: CGFloat, y: CGFloat) {
         let e = Fighter(name: "skeleton", skin: SkeletonSkin(), stats: .skeleton)
         e.team = 1
+        e.world = pickups
         if !args.contains("-passive"), !testMode { e.brain = EnemyBrain(director: crowd) }
         e.rig.scaleFactor = 1.3
         e.rig.facingRight = false
@@ -160,6 +170,14 @@ final class GameScene: SKScene {
             bar.isHidden = e.dead || e.healthFraction >= 1
         }
         heroBar.set(hero.healthFraction)
+
+        // Loot: some KO'd enemies drop food
+        for e in enemies where e.dead && !e.lootDropped {
+            e.lootDropped = true
+            if !testMode, Double.random(in: 0...1) < foodDropChance {
+                pickups.launch(.item(Items.food), from: e.rig.position, height: 40, vx: .random(in: -60...60), vz: 600)
+            }
+        }
 
         // Clear out the dead; keep the playground stocked
         enemies.removeAll { e in
@@ -264,6 +282,7 @@ final class GameScene: SKScene {
         }
         if ProcessInfo.processInfo.arguments.contains("-hittest") { runHitTest() }
         if ProcessInfo.processInfo.arguments.contains("-divetest") { runDiveTest() }
+        if ProcessInfo.processInfo.arguments.contains("-itemtest") { runItemTest() }
         if ProcessInfo.processInfo.arguments.contains("-crowdtest") { hero.stats.maxHealth = 1_000_000; hero.restore() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
@@ -321,6 +340,52 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-itemtest`: pickups, swaps, disarming and bare-handed damage. Prints `ITEMTEST` state lines.
+    private func runItemTest() {
+        guard let e = enemies.first else { return }
+        func fire(_ g: Gesture) -> SKAction { .run { [weak self] in self?.hero.handle(g) } }
+        func w(_ t: Double) -> SKAction { .wait(forDuration: t) }
+        func act(_ f: @escaping (Fighter, Fighter) -> Void) -> SKAction { .run { [weak self] in if let self { f(self.hero, e) } } }
+        func place(_ k: PickupKind, dx: CGFloat) -> SKAction { .run { [weak self] in self?.pickups.place(k, at: CGPoint(x: 667 + dx, y: 120)) } }
+        func report(_ label: String) -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            let ground = self.pickups.pickups.map { "\($0.label)@\(Int($0.position.x))" + ($0.landed ? "" : "(air)") }.joined(separator: ",")
+            NSLog("ITEMTEST %@ | hero hp=%ld weapon=%@ | enemy hp=%ld weapon=%@ | ground=[%@]", label, Int(self.hero.health),
+                  self.hero.weapon?.name ?? "none", Int(e.health), e.weapon?.name ?? "none", ground)
+        } }
+        func reset(_ title: String, gap: CGFloat = 400) -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            NSLog("ITEMTEST --- %@", title)
+            self.pickups.clear()
+            self.hero.restore(); self.hero.rig.position = CGPoint(x: 667, y: 120); self.hero.rig.facingRight = true
+            e.restore(); e.rig.position = CGPoint(x: 667 + gap, y: 120); e.rig.facingRight = false
+        } }
+        let uppercut = MoveTable.chain(from: "heavy attack", .up)!
+        let jab = MoveTable.move(.grounded, .tap)!
+        let pick = MoveTable.move(.grounded, .down)!
+        run(.sequence([
+            w(1),
+            reset("A heal when hurt"), act { h, _ in h.debugSetHealth(50) }, place(.item(Items.food), dx: 30), fire(.swipe(.down)), w(0.9),
+            report("expect hp 75, apple gone"),
+            reset("B food at full health stays"), place(.item(Items.food), dx: 30), fire(.swipe(.down)), w(0.9),
+            report("expect hp 100, apple stays"),
+            reset("C swap weapon"), place(.weapon(Weapons.axe), dx: 30), fire(.swipe(.down)), w(0.35),
+            report("mid-swap"), w(1.0), report("expect weapon axe, sword on ground"),
+            reset("D bare-handed pickup"), act { h, _ in h.equip(nil) }, place(.weapon(Weapons.sword), dx: 30), fire(.swipe(.down)), w(0.9),
+            report("expect weapon sword"),
+            reset("E strong hit disarms", gap: 70), act { _, e in e.debugPerform(uppercut) }, w(0.5),
+            report("mid-flip"), w(1.4), report("expect hero weapon none, sword on ground"),
+            reset("F jab keeps weapon", gap: 70), act { _, e in e.debugPerform(jab) }, w(1.0), report("expect weapon sword"),
+            reset("G armed heavy attack", gap: 90), fire(.swipe(.right)), w(1.2), report("expect enemy hp 28 (12 dmg)"),
+            reset("H bare-handed heavy attack", gap: 90), act { h, _ in h.equip(nil) }, fire(.swipe(.right)), w(1.2),
+            report("expect enemy hp 31.6 (8.4 dmg)"),
+            reset("I hero with axe", gap: 90), act { h, _ in h.equip(Weapons.axe) }, fire(.swipe(.right)), w(1.2),
+            report("expect enemy hp 24.4 (15.6 dmg)"),
+            reset("J enemies skip items"), place(.item(Items.food), dx: 400), act { _, e in e.debugPerform(pick) }, w(1.0),
+            report("expect apple stays")
+        ]))
     }
 
     /// Launch with `-divetest`: jump, hang, dive onto a standing skeleton at several offsets. Logs every hit with the move that caused it.
@@ -451,7 +516,7 @@ final class GameScene: SKScene {
             dot.position = c
             debugLayer.addChild(ring); debugLayer.addChild(dot)
         }
-        debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  hp \(Int(hero.health))  |  last: \(hero.lastGesture)"
+        debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  hp \(Int(hero.health))  wpn \(hero.weapon?.name ?? "none")  |  last: \(hero.lastGesture)"
     }
 
     // MARK: Loop
@@ -466,6 +531,7 @@ final class GameScene: SKScene {
         hero.step(now: currentTime, dt: dt, bounds: bounds, foes: enemies)
         for e in enemies { e.step(now: currentTime, dt: dt, bounds: bounds, foes: [hero]) }
         separateEnemies(dt: CGFloat(dt), bounds: bounds)
+        pickups.step(dt: CGFloat(dt), minX: level.minX + 20, maxX: level.maxX - 20)
         updateCombat(now: currentTime)
         updateDebug()
 

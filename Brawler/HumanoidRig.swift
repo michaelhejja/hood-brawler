@@ -8,8 +8,9 @@ enum CharacterAnimation: String, CaseIterable, Identifiable {
     case smash                 // running ground slam: two-handed overhead swing
     case uppercut              // launcher: cock low, swing up, head thrown back
     case knockdown             // blasted flat: topples backwards and stays down
+    case pickup                // crouch and reach for the ground
     var id: String { rawValue }
-    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .uppercut, .smash, .hit, .slam]
+    static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .uppercut, .smash, .pickup, .hit, .slam]
     var title: String { rawValue.capitalized }
 }
 
@@ -35,7 +36,7 @@ final class HumanoidRig: SKNode {
     private let armWeapon: SKNode
     private let torso: SKNode
     private let head = SKNode()     // pivot; the skin's head art hangs inside it
-    private let sword: SKNode
+    private var sword: SKNode
 
     /// Distance above the ground (pt, unscaled). The scene's physics drives this.
     var height: CGFloat = 0 { didSet { rig.position.y = height; updateShadow() } }
@@ -56,12 +57,21 @@ final class HumanoidRig: SKNode {
         armOff = skin.makeArm(.off)
         armWeapon = skin.makeArm(.weapon)
         torso = skin.makeTorso()
-        sword = skin.makeWeapon() ?? SKNode()
+        sword = skin.defaultWeapon?.make() ?? SKNode()
         super.init()
         build()
         play(.idle)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Swap what's in the weapon hand (nil = empty hand).
+    func setWeapon(_ w: Weapon?) {
+        sword.removeFromParent()
+        sword = w?.make() ?? SKNode()
+        sword.position = CGPoint(x: 0, y: -armLength)
+        sword.zRotation = swordRest
+        armWeapon.addChild(sword)
+    }
 
     private func updateShadow() {
         let k = max(0.35, 1 - height / 350)
@@ -113,6 +123,7 @@ final class HumanoidRig: SKNode {
         case .smash:  smash()
         case .uppercut: uppercut()
         case .knockdown: knockdown()
+        case .pickup: pickup()
         case .slamLand: slamLand()
         }
     }
@@ -259,6 +270,21 @@ final class HumanoidRig: SKNode {
         track(legBack, [(-0.3, 0.1)])
         body.run(pose(y: restY, sx: 0.92, sy: 1.1, d: 0.1))
         streaks()
+    }
+
+    /// Crouch with the torso pitched forward and the front arm hanging straight down (world-vertical) to scoop something up.
+    private func pickup() {
+        track(body, [(-0.6, 0.14), (nil, 0.1), (0, 0.18)])
+        body.run(.sequence([
+            pose(y: restY * 0.6, sx: 1.06, sy: 0.9, d: 0.14),
+            .wait(forDuration: 0.1),
+            pose(y: restY, d: 0.18),
+            returnToIdle
+        ]))
+        track(armOff,   [(0.6, 0.14), (nil, 0.1), (0, 0.18)])        // cancels the lean: the arm points straight down
+        track(head,     [(0.35, 0.14), (nil, 0.1), (0, 0.18)])       // eyes stay forward
+        track(legFront, [(0.6, 0.14), (nil, 0.1), (0, 0.18)])
+        track(legBack,  [(-0.5, 0.14), (nil, 0.1), (0, 0.18)])
     }
 
     /// Blasted flat: topples backwards, limbs flung out, and stays down until the fighter gets up.

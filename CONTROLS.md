@@ -63,5 +63,10 @@ Next: hit detection, then dedicated animations for each move.
 - Crowd control (`CrowdDirector`, Brain.swift): at most 2 enemies hold an attack token and close in (started 0.6s apart,
   nearest first); the rest wait in a ring ~230pt out, spread across lanes by slot, and take over as tokens free up.
   A soft separation push (GameScene) keeps grounded enemies from standing on each other; it never disturbs an attack.
+- Weapons and items (Items.swift): `Weapon` and `Item` are data (name, art, power / effect). Swipe down while standing or walking
+  picks up whatever is within 80pt x 40pt lane at the feet (grab lands 0.2s into the move). A weapon replaces the one in hand and
+  the old one is tossed behind you; food heals 25 and stays on the ground at full health. Only the player collects items.
+- Strong hits (launch, spike, or knockback >= 500) knock the victim's weapon out: it flips away and lands as a pickup.
+  Weapon moves (`.armed`) scale with the weapon's power; unarmed weapon moves do 0.7x.
 - Next: tune damage/knockback, hit reaction animations.
-- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` / `-divetest` (scripted hit cases, log `HIT` lines), `-crowdtest` (hero can't die; logs `CROWD` spacing metrics).
+- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` / `-divetest` (scripted hit cases, log `HIT` lines), `-crowdtest` (hero can't die; logs `CROWD` spacing metrics), `-itemtest` (scripted pickup / swap / disarm cases).

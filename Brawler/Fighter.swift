@@ -44,6 +44,11 @@ final class Fighter {
     let rig: HumanoidRig
     var stats: FighterStats
     var brain: Brain?                      // who is driving this fighter (player or AI)
+    weak var world: PickupField?           // the ground: where weapons drop and pickups are found
+    var collectsItems = false              // only the player picks up items (weapons can be picked up by anyone)
+    var lootDropped = false
+    private(set) var weapon: Weapon?
+    let startWeapon: Weapon?
     var team = 0                           // fighters only hit other teams
     var logPrefix: String?                 // non-nil: log each move as "MOVE <prefix><description>"
     private(set) var health: CGFloat
@@ -64,6 +69,7 @@ final class Fighter {
     private var jump: (height: CGFloat, rise: CGFloat, hang: CGFloat, fall: CGFloat, t: CGFloat)?   // nil = physics (slam)
     private var falling = false
     private var now: TimeInterval = 0
+    private var grabAt: TimeInterval?
     private var foesNow: [Fighter] = []
     static let personalSpace: CGFloat = 46     // root motion stops this far short of an opponent
 
@@ -82,6 +88,8 @@ final class Fighter {
         self.stats = stats
         health = stats.maxHealth
         rig = HumanoidRig(skin: skin)
+        startWeapon = skin.defaultWeapon
+        weapon = startWeapon
         rig.returnsToIdle = false          // the fighter drives locomotion animation itself
     }
 
@@ -116,6 +124,7 @@ final class Fighter {
         airborne = false; jump = nil; vz = 0; falling = false; knock = 0; velocity = 0
         hurtUntil = 0; downUntil = 0; brakeUntil = 0; actionUntil = 0; frozenUntil = 0
         current = nil; buffered = nil; claims = [:]; loco = nil; advance = nil
+        grabAt = nil; lootDropped = false; equip(startWeapon)
         rig.isPaused = false; rig.height = 0; rig.alpha = 1; rig.speed = 1
         rig.play(.idle)
     }
@@ -145,6 +154,58 @@ final class Fighter {
         rig.position.y = min(max(rig.position.y + dy, bounds.minY), bounds.maxY)
         rig.zPosition = 300 - rig.position.y
     }
+
+    // MARK: Weapons and items
+
+    /// Damage multiplier: the fighter's own strength, times the weapon for weapon moves (bare-handed hits softer).
+    var damageMultiplier: CGFloat {
+        stats.damageScale * (current?.move.usesWeapon == true ? (weapon?.power ?? 0.7) : 1)
+    }
+
+    func equip(_ w: Weapon?) {
+        weapon = w
+        rig.setWeapon(w)
+    }
+
+    /// Restores health. Returns false (and does nothing) when already full, so food isn't wasted.
+    @discardableResult
+    func heal(_ amount: CGFloat) -> Bool {
+        guard !dead, health < stats.maxHealth else { return false }
+        let gained = min(amount, stats.maxHealth - health)
+        health += gained
+        world?.floatText("+\(Int(gained.rounded()))", at: CGPoint(x: rig.position.x, y: rig.position.y + rig.height + 150),
+                         color: SKColor(red: 0.45, green: 1, blue: 0.5, alpha: 1))
+        NSLog("ITEM %@ healed +%.0f hp %.0f", name, gained, health)
+        return true
+    }
+
+    /// The grab moment of a pick-up move: take what's at the feet. A weapon replaces (and drops) the one in hand.
+    private func performGrab() {
+        guard let world, let p = world.nearest(to: rig.position, items: collectsItems) else { return }
+        switch p.kind {
+        case .weapon(let new):
+            world.take(p)
+            if let old = weapon {
+                world.launch(.weapon(old), from: rig.position, height: 30, vx: (rig.facingRight ? -1 : 1) * 90, vz: 520)
+                NSLog("ITEM %@ swapped %@ -> %@", name, old.name, new.name)
+            } else {
+                NSLog("ITEM %@ equipped %@", name, new.name)
+            }
+            equip(new)
+        case .item(let item):
+            if item.apply(self) { world.take(p); NSLog("ITEM %@ used %@", name, item.name) }
+        }
+    }
+
+    /// Knocked out of the hand: the weapon flips away from the attacker and lands on the ground.
+    private func disarm(away: CGFloat) {
+        guard let w = weapon else { return }
+        equip(nil)
+        world?.launch(.weapon(w), from: rig.position, height: rig.height + 70, vx: away * 190, vz: 700)
+        NSLog("ITEM %@ dropped %@", name, w.name)
+    }
+
+    func debugSetHealth(_ h: CGFloat) { health = h }
 
     /// Test hook: run a move directly, skipping the gesture / context / chain rules.
     func debugPerform(_ m: Move) { perform(m) }
@@ -196,6 +257,7 @@ final class Fighter {
         buffered = nil
         advance = move.advance > 0
             ? (now + move.advanceStart, move.advanceDuration, move.advance, rig.facingRight ? 1 : -1, 0) : nil
+        grabAt = move.grab >= 0 ? now + move.grab : nil
         if move.lunge > 0 {
             moveDir = CGVector(dx: rig.facingRight ? 1 : -1, dy: 0)
             velocity = max(velocity, move.lunge)
@@ -286,6 +348,8 @@ final class Fighter {
         brakeUntil = 0; velocity = 0; loco = nil
         knock = away * hit.knockback * power
         rig.speed = 1
+        grabAt = nil
+        if hit.isStrong || dead { disarm(away: away) }       // before the reaction animation, which resets the weapon pose
 
         if airborne || hit.launch > 0 {
             // Juggle: any hit keeps a launched fighter up; launchers send them higher, spikes drive them down
@@ -327,6 +391,7 @@ final class Fighter {
         if downUntil > 0 { downUntil += extra }
         if var c = current { c.start += extra; current = c }
         if var a = advance { a.from += extra; advance = a }
+        if let g = grabAt { grabAt = g + extra }
         if var b = buffered { b.time += extra; buffered = b }
     }
 
@@ -389,6 +454,7 @@ final class Fighter {
         if hasInput, abs(intent.direction.dx) > 0.25 { rig.facingRight = intent.direction.dx > 0 }
 
         stepHeight(d, now: currentTime)
+        if let g = grabAt, currentTime >= g { grabAt = nil; performGrab() }
         if let b = buffered {
             if currentTime - b.time > ComboTuning.buffer { buffered = nil }
             else { buffered = nil; handle(b.gesture, bufferedAt: b.time) }

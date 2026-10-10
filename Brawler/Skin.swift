@@ -50,12 +50,13 @@ protocol Skin {
     func makeTorso() -> SKNode
     func makeLeg(_ side: LegSide) -> SKNode
     func makeArm(_ role: ArmRole) -> SKNode       // includes the hand
-    func makeWeapon() -> SKNode?                  // blade along +y, grip at the origin; nil = unarmed
+    var defaultWeapon: Weapon? { get }            // what this character starts with; nil = unarmed
 }
 
 // MARK: - Hero
 
 struct HeroSkin: Skin {
+    var defaultWeapon: Weapon? { Weapons.sword }
     private let cloak = SKColor(red: 0.36, green: 0.28, blue: 0.50, alpha: 1)
     private let cloakDark = SKColor(red: 0.24, green: 0.18, blue: 0.36, alpha: 1)
     var layout = RigLayout()
@@ -97,27 +98,12 @@ struct HeroSkin: Skin {
         }
     }
 
-    func makeWeapon() -> SKNode? {
-        let p = CGMutablePath()
-        p.move(to: CGPoint(x: -4, y: 0)); p.addLine(to: CGPoint(x: 4, y: 0))
-        p.addLine(to: CGPoint(x: 3, y: 46)); p.addLine(to: CGPoint(x: 0, y: 56))
-        p.addLine(to: CGPoint(x: -3, y: 46)); p.closeSubpath()
-        let sword = SKShapeNode(path: p)
-        styled(sword, SKColor(white: 0.9, alpha: 1), line: 3)
-        let guardBar = styled(SKShapeNode(rect: CGRect(x: -9, y: -3, width: 18, height: 6), cornerRadius: 3),
-                              SKColor(red: 0.5, green: 0.3, blue: 0.15, alpha: 1), line: 3)
-        let blood = styled(SKShapeNode(ellipseOf: CGSize(width: 6, height: 14)),
-                           SKColor(red: 0.75, green: 0.05, blue: 0.1, alpha: 1), line: 0)
-        blood.position = CGPoint(x: 0, y: 38)
-        sword.addChild(blood)
-        sword.addChild(guardBar)
-        return sword
-    }
 }
 
 // MARK: - Skeleton
 
 struct SkeletonSkin: Skin {
+    var defaultWeapon: Weapon? { Weapons.rustyBlade }
     private let bone = SKColor(white: 0.93, alpha: 1)
     var layout = RigLayout(restY: 28, legBackX: -7, legFrontX: 7,
                            weaponShoulder: CGPoint(x: -14, y: 44), offShoulder: CGPoint(x: 15, y: 44),
@@ -154,8 +140,4 @@ struct SkeletonSkin: Skin {
     func makeLeg(_ side: LegSide) -> SKNode { limbShape(width: 9, height: 28, fill: bone, line: 3) }
     func makeArm(_ role: ArmRole) -> SKNode { limbShape(width: 8, height: 26, fill: bone, line: 3) }
 
-    func makeWeapon() -> SKNode? {
-        styled(SKShapeNode(rect: CGRect(x: -3, y: 0, width: 6, height: 42), cornerRadius: 2),
-               SKColor(red: 0.6, green: 0.55, blue: 0.5, alpha: 1), line: 3)
-    }
 }
