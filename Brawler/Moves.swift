@@ -62,7 +62,7 @@ extension Hit {
     static let hook       = Hit(start: 0.10, duration: 0.10, reach: 0...135, damage: 12, knockback: 380, stun: 0.4)
     static let dashJab    = Hit(start: 0.04, duration: 0.14, reach: 0...150, damage: 8, knockback: 320, stun: 0.3)
     static let dashHook   = Hit(start: 0.08, duration: 0.18, reach: 0...160, damage: 16, knockback: 520, stun: 0.45)
-    static let uppercut   = Hit(start: 0.07, duration: 0.14, reach: -10...110, heightTolerance: 300, damage: 14, knockback: 80, launch: 850, stun: 0.4)
+    static let uppercut   = Hit(start: 0.07, duration: 0.14, reach: -10...110, heightTolerance: 300, damage: 14, knockback: 80, launch: 1202, stun: 0.4)   // 850 x sqrt(2): apex doubles
     static let diveSlam   = Hit(start: 0, duration: 1.0, reach: 0...90, depth: 40, heightTolerance: 140, damage: 10, knockback: 250, launch: -900, stun: 0.4)
     static let shockwave  = Hit(start: 0, duration: 0.12, reach: -170...170, depth: 60, heightTolerance: 80, damage: 14, knockback: 650, launch: 450, stun: 0.5)
     static let smash      = Hit(start: 0.25, duration: 0.12, reach: 0...175, depth: 50, heightTolerance: 120, damage: 18, knockback: 700, launch: 350, stun: 0.5)

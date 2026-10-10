@@ -79,7 +79,7 @@ final class GameScene: SKScene {
     // MARK: Enemies
 
     private let args = ProcessInfo.processInfo.arguments
-    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") || args.contains("-fxtest") }
+    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") || args.contains("-fxtest") || args.contains("-launchtest") }
     private var nextCrowdLog: TimeInterval = 0
     private let crowd = CrowdDirector()
     private let pickups = PickupField()
@@ -329,6 +329,7 @@ final class GameScene: SKScene {
         if ProcessInfo.processInfo.arguments.contains("-itemtest") { runItemTest() }
         if ProcessInfo.processInfo.arguments.contains("-bowtest") { runBowTest() }
         if ProcessInfo.processInfo.arguments.contains("-fxtest") { runFxTest() }
+        if ProcessInfo.processInfo.arguments.contains("-launchtest") { runLaunchTest() }
         if ProcessInfo.processInfo.arguments.contains("-crowdtest") { hero.stats.maxHealth = 1_000_000; hero.restore() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
@@ -387,6 +388,32 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-launchtest`: hook into uppercut on a standing skeleton; reports how high it is launched and how long it stays up.
+    private func runLaunchTest() {
+        guard let e = enemies.first else { return }
+        var peak: CGFloat = 0, airStart: TimeInterval?, airTime: TimeInterval = 0, t: TimeInterval = 0
+        run(.repeatForever(.sequence([.wait(forDuration: 1.0 / 120), .run { [weak self] in
+            guard let self else { return }
+            t += 1.0 / 120 / Double(max(self.speed, 0.01))
+            if e.launched || e.rig.height > 1 {
+                peak = max(peak, e.rig.height); airStart = airStart ?? t; airTime = t - (airStart ?? t)
+            }
+        }])), withKey: "sampler")
+        run(.sequence([
+            .wait(forDuration: 1),
+            .run { [weak self] in
+                guard let self else { return }
+                self.hero.restore(); self.hero.rig.position = CGPoint(x: 667, y: 120); self.hero.rig.facingRight = true
+                e.restore(); e.rig.position = CGPoint(x: 757, y: 120); e.rig.facingRight = false
+                for other in self.enemies where other !== e { other.rig.position.x = 3000 }
+                self.hero.handle(.swipe(.right))
+            },
+            .wait(forDuration: 0.3), .run { [weak self] in self?.hero.handle(.swipe(.up)) },
+            .wait(forDuration: 4),
+            .run { NSLog("LAUNCHTEST enemy peak height %.1f pt, airborne %.2f s (game time)", peak, airTime) }
+        ]))
     }
 
     /// Launch with `-fxtest`: one move per case; reports the peak zoom / slowest time scale / seconds active for each.
