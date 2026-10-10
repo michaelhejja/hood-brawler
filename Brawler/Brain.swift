@@ -24,6 +24,15 @@ final class PlayerBrain: Brain {
     }
 }
 
+/// Test brain: walks in a fixed direction (stands in for an enemy closing in).
+final class WalkBrain: Brain {
+    let direction: CGVector, intensity: CGFloat
+    init(direction: CGVector, intensity: CGFloat) { self.direction = direction; self.intensity = intensity }
+    func think(me: Fighter, foes: [Fighter], now: TimeInterval, dt: TimeInterval) -> MoveIntent {
+        MoveIntent(direction: direction, intensity: intensity)
+    }
+}
+
 // MARK: - Crowd
 
 /// Stops a group of enemies from all piling onto the player at once: only a few hold an "attack token" at a time and

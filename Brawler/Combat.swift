@@ -17,7 +17,7 @@ enum Combat {
                     let move = a.currentMoveName
                     let moveUsed = a.currentMove
                     t.receive(hit, power: power, scale: a.damageMultiplier, from: a)
-                    let stop = min(0.12, 0.03 + Double(dmg) * 0.004)      // hit-stop: heavier hits freeze longer
+                    let stop = hit.launch > 0 ? 0 : min(0.12, 0.03 + Double(dmg) * 0.004)   // hit-stop: heavier hits freeze longer; launchers never freeze, the victim flies at once
                     a.hitStop(stop); t.hitStop(stop)
                     let toward: CGFloat = a.rig.position.x < t.rig.position.x ? -1 : 1
                     contacts.append(Contact(point: CGPoint(x: t.rig.position.x + toward * 10,

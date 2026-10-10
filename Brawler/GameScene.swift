@@ -79,11 +79,12 @@ final class GameScene: SKScene {
     // MARK: Enemies
 
     private let args = ProcessInfo.processInfo.arguments
-    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") || args.contains("-fxtest") || args.contains("-launchtest") || args.contains("-juggletest") }
+    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") || args.contains("-fxtest") || args.contains("-launchtest") || args.contains("-juggletest") || args.contains("-uppertest") }
     private var nextCrowdLog: TimeInterval = 0
     private let crowd = CrowdDirector()
     private let pickups = PickupField()
     private let fx = CameraFX()
+    private var profileHit0: TimeInterval?
     private var fxEnabled: Bool { !args.contains("-nofx") }
     private var gameTime: TimeInterval = 0      // advances at the (possibly slowed) game rate; every gameplay timer runs on it
     private var realNow: TimeInterval = 0
@@ -205,6 +206,7 @@ final class GameScene: SKScene {
         let contacts = Combat.resolve([hero] + enemies) + Combat.resolveProjectiles(arrows, [hero] + enemies)
         for c in contacts { spawnImpact(at: c.point, damage: c.damage) }
         emphasize(contacts)
+        if args.contains("-launchprofile"), profileHit0 == nil, contacts.contains(where: { $0.move?.name == "uppercut" }) { profileHit0 = realNow }
 
         // Health bars float over enemies (hidden at full health); the hero's sits at the bottom of the screen
         for e in enemies {
@@ -331,6 +333,7 @@ final class GameScene: SKScene {
         if ProcessInfo.processInfo.arguments.contains("-fxtest") { runFxTest() }
         if ProcessInfo.processInfo.arguments.contains("-launchtest") { runLaunchTest() }
         if ProcessInfo.processInfo.arguments.contains("-juggletest") { runJuggleTest() }
+        if ProcessInfo.processInfo.arguments.contains("-uppertest") { runUpperTest() }
         if ProcessInfo.processInfo.arguments.contains("-crowdtest") { hero.stats.maxHealth = 1_000_000; hero.restore() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
@@ -389,6 +392,53 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-uppertest -opener hook|punch|dash`: opener, a varied delay, then an uppercut swipe.
+    /// Logs the skeleton's state at the moment of the swipe and (via HIT lines) whether the uppercut connected.
+    private func runUpperTest() {
+        guard let e = enemies.first else { return }
+        let opener = args.firstIndex(of: "-opener").map { args[$0 + 1] } ?? "hook"
+        let walking = args.contains("-walk")
+        func w(_ t: Double) -> SKAction { .wait(forDuration: t) }
+        func fire(_ g: Gesture) -> SKAction { .run { [weak self] in self?.hero.handle(g) } }
+        func sprint(_ on: Bool) -> SKAction { .run { [weak self] in if on { self?.input.keyDown("d", run: true) } else { self?.input.keyUp("d") } } }
+        func setup(_ title: String, gap: CGFloat) -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            NSLog("UPPERTEST --- %@", title)
+            self.input.keyUp("d")
+            self.hero.restore(); self.hero.rig.position = CGPoint(x: 667, y: 120); self.hero.rig.facingRight = true
+            for other in self.enemies where other !== e { other.rig.position.x = 3000 }
+            e.restore(); e.rig.position = CGPoint(x: 667 + gap, y: 120); e.rig.facingRight = false
+            e.brain = walking ? WalkBrain(direction: CGVector(dx: -1, dy: 0), intensity: 0.5) : nil
+        } }
+        let pre = SKAction.run { [weak self] in
+            guard let self else { return }
+            NSLog("UPPERTEST pre gap=%.0f down=%d hurt=%d launched=%d hero_move=%@", e.rig.position.x - self.hero.rig.position.x,
+                  e.isDown ? 1 : 0, e.isHurt ? 1 : 0, e.launched ? 1 : 0, self.hero.currentMoveName)
+        }
+        var steps: [SKAction] = [w(1)]
+        for delay in [0.1, 0.25, 0.45, 0.7] {
+            switch opener {
+            case "dash":
+                for t in [0.55, 0.7, 0.85] {
+                    steps += [setup("dash run=\(t) delay=\(delay)", gap: 400), sprint(true), w(t), fire(.swipe(.right)), w(delay), pre,
+                              fire(.swipe(.up)), w(1.4)]
+                }
+            case "punch":
+                for gap: CGFloat in [70, 100, 130] {
+                    steps += [setup("punch2 gap=\(Int(gap)) delay=\(delay)", gap: gap), fire(.tap), w(0.2), fire(.tap), w(delay), pre,
+                              fire(.swipe(.up)), w(1.4)]
+                }
+            default:
+                for gap: CGFloat in [70, 100, 130] {
+                    steps += [setup("hook gap=\(Int(gap)) delay=\(delay)", gap: gap), fire(.swipe(.right)), w(delay), pre,
+                              fire(.swipe(.up)), w(1.4)]
+                }
+            }
+        }
+        steps.append(sprint(false))
+        run(.sequence(steps))
     }
 
     /// Launch with `-juggletest`: hook, uppercut, then an air slam `slamAt` seconds after the uppercut. Logs both fighters every 50ms.
@@ -765,6 +815,9 @@ final class GameScene: SKScene {
         pickups.step(dt: CGFloat(dt), minX: level.minX + 20, maxX: level.maxX - 20)
         arrows.step(dt: CGFloat(dt), minX: level.minX, maxX: level.maxX)
         updateCombat(now: now)
+        if let t0 = profileHit0, realNow - t0 < 0.7, let e = enemies.first {
+            NSLog("PROFILE t=%.3f slow=%.2f skel_h=%.1f hero_h=%.1f", realNow - t0, sample.slow, e.rig.height, hero.rig.height)
+        }
         updateDebug()
 
         // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps).
