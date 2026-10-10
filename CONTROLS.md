@@ -75,5 +75,11 @@ Next: hit detection, then dedicated animations for each move.
 - Archers (enemies holding a ranged weapon with ammo) skip the melee queue: they hold 270-470pt out, backpedal while still facing you
   (hurrying when you're close), slide into your lane, pause, then shoot with the same back-swipe gesture. Pressed at point-blank for
   ~1s with planted feet they jab weakly. Out of arrows, they fall back to the normal melee brain.
+- Camera moments (CameraFX.swift): the bigger the moment, the bigger the effect. A `Move` carries an `Emphasis` tier (zoom in,
+  slow-mo, hold, release); only the hero's moves and hits drive it. Tiers: none (jab) | light (hook, 2% zoom) | medium (power dash,
+  dive; 4.5%, 0.8x speed) | heavy (uppercut, ground smash; 8%, 0.55x) | massive (landing shockwave, last enemy falling; 13%+, 0.35x).
+  A windup zoom starts with the move (even if it whiffs). On a hit it scales up by 25% per extra enemy hit and 20% for a KO;
+  any KO gets at least `kill`, the last enemy `massive`. While zoomed the camera drifts toward the hero's chest and stays inside the
+  level. Slow-mo scales all game time (movement, animations, timers) but not the camera's own easing. `-nofx` disables it.
 - Next: tune damage/knockback, hit reaction animations, more weapons (whip, spear, hammer, shield).
-- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` / `-divetest` (scripted hit cases, log `HIT` lines), `-crowdtest` (hero can't die; logs `CROWD` spacing metrics), `-itemtest` (scripted pickup / swap / disarm cases), `-bowtest` (shooting, ammo, dodging, archers).
+- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` / `-divetest` (scripted hit cases, log `HIT` lines), `-crowdtest` (hero can't die; logs `CROWD` spacing metrics), `-itemtest` (scripted pickup / swap / disarm cases), `-bowtest` (shooting, ammo, dodging, archers), `-fxtest` (camera zoom / slow-mo per move), `-nofx`, `-fxhold` (stretch the peak for screenshots).

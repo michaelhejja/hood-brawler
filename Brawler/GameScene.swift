@@ -45,6 +45,8 @@ final class GameScene: SKScene {
         addChild(pickups)
         addChild(arrows)
         hero.world = pickups
+        hero.onMoveStart = { [weak self] in self?.windup($0) }
+        if args.contains("-fxhold") { fx.holdScale = 6 }
         hero.projectiles = arrows
         hero.collectsItems = true
 
@@ -77,10 +79,15 @@ final class GameScene: SKScene {
     // MARK: Enemies
 
     private let args = ProcessInfo.processInfo.arguments
-    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") }
+    private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") || args.contains("-itemtest") || args.contains("-bowtest") || args.contains("-fxtest") }
     private var nextCrowdLog: TimeInterval = 0
     private let crowd = CrowdDirector()
     private let pickups = PickupField()
+    private let fx = CameraFX()
+    private var fxEnabled: Bool { !args.contains("-nofx") }
+    private var gameTime: TimeInterval = 0      // advances at the (possibly slowed) game rate; every gameplay timer runs on it
+    private var realNow: TimeInterval = 0
+    private var fxPeakZoom: CGFloat = 0, fxMinScale: CGFloat = 1, fxActive: TimeInterval = 0
     private let arrows = ProjectileField()
     private let archerChance = 0.3           // chance a spawned skeleton carries a bow
     private let foodDropChance = 0.3          // chance a KO'd enemy drops food
@@ -166,10 +173,38 @@ final class GameScene: SKScene {
         }
     }
 
+    // MARK: Camera moments
+
+    /// Anticipation: the camera starts easing in as the hero begins a big move, even if it ends up missing.
+    private func windup(_ m: Move) {
+        guard fxEnabled, m.emphasis.windup > 0 else { return }
+        fx.add(zoom: m.emphasis.windup, attack: 0.1, hold: 0.15, release: m.emphasis.release, at: realNow)
+    }
+
+    /// The hero's connecting hits set the size of the moment: the move's own tier, bumped by how many it hit, whether it
+    /// finished someone, and whether that was the last enemy standing. Enemy hits never move the camera.
+    private func emphasize(_ contacts: [Combat.Contact]) {
+        guard fxEnabled else { return }
+        let mine = contacts.filter { $0.attacker === hero }
+        guard !mine.isEmpty else { return }
+        var e = mine.compactMap { $0.move?.emphasis }.max { $0.impact < $1.impact } ?? .none
+        let ko = mine.contains { $0.ko }
+        if ko {
+            let finisher = !enemies.contains { !$0.dead }
+            let k = finisher ? Emphasis.massive : Emphasis.kill
+            if k.impact > e.impact { e = k }
+        }
+        guard e.impact > 0 else { return }
+        let bonus = min(1.6, 1 + 0.25 * CGFloat(mine.count - 1) + (ko ? 0.2 : 0))
+        fx.add(zoom: e.impact * bonus, slow: max(0.2, 1 - (1 - e.slow) * min(1.3, bonus)), attack: 0.05,
+               hold: e.hold * Double(bonus), release: e.release, at: realNow)
+    }
+
     private func updateCombat(now: TimeInterval) {
         logCrowd(now: now)
-        for c in Combat.resolve([hero] + enemies) { spawnImpact(at: c.point, damage: c.damage) }
-        for c in Combat.resolveProjectiles(arrows, [hero] + enemies) { spawnImpact(at: c.point, damage: c.damage) }
+        let contacts = Combat.resolve([hero] + enemies) + Combat.resolveProjectiles(arrows, [hero] + enemies)
+        for c in contacts { spawnImpact(at: c.point, damage: c.damage) }
+        emphasize(contacts)
 
         // Health bars float over enemies (hidden at full health); the hero's sits at the bottom of the screen
         for e in enemies {
@@ -293,6 +328,7 @@ final class GameScene: SKScene {
         if ProcessInfo.processInfo.arguments.contains("-divetest") { runDiveTest() }
         if ProcessInfo.processInfo.arguments.contains("-itemtest") { runItemTest() }
         if ProcessInfo.processInfo.arguments.contains("-bowtest") { runBowTest() }
+        if ProcessInfo.processInfo.arguments.contains("-fxtest") { runFxTest() }
         if ProcessInfo.processInfo.arguments.contains("-crowdtest") { hero.stats.maxHealth = 1_000_000; hero.restore() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
@@ -351,6 +387,47 @@ final class GameScene: SKScene {
         NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
             if let kb = n.object as? GCKeyboard { attach(kb) }
         }
+    }
+
+    /// Launch with `-fxtest`: one move per case; reports the peak zoom / slowest time scale / seconds active for each.
+    private func runFxTest() {
+        guard enemies.count >= 2 else { return }
+        let e = enemies[0], e2 = enemies[1]
+        func fire(_ g: Gesture) -> SKAction { .run { [weak self] in self?.hero.handle(g) } }
+        func w(_ t: Double) -> SKAction { .wait(forDuration: t) }
+        func act(_ f: @escaping (Fighter, Fighter) -> Void) -> SKAction { .run { [weak self] in if let self { f(self.hero, e) } } }
+        func reset(_ title: String, gap: CGFloat = 90, second: Bool = false, lastOne: Bool = false) -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            NSLog("FXTEST --- %@", title)
+            self.fxPeakZoom = 0; self.fxMinScale = 1; self.fxActive = 0
+            self.pickups.clear(); self.arrows.clear()
+            self.hero.restore(); self.hero.rig.position = CGPoint(x: 667, y: 120); self.hero.rig.facingRight = true
+            for (i, f) in self.enemies.enumerated() { f.restore(); f.rig.position = CGPoint(x: 1900 + CGFloat(i) * 150, y: 120); f.rig.facingRight = false }
+            e.rig.position = CGPoint(x: 667 + gap, y: 120)
+            if second { e2.rig.position = CGPoint(x: 667 + gap + 30, y: 126) }
+            if lastOne { for f in self.enemies where f !== e { f.debugSetHealth(0) } }
+        } }
+        func report() -> SKAction { .run { [weak self] in
+            guard let self else { return }
+            NSLog("FXTEST result peak_zoom=%.3f min_timescale=%.2f active=%.2fs", self.fxPeakZoom, self.fxMinScale, self.fxActive)
+        } }
+        func sprint(_ on: Bool) -> SKAction { .run { [weak self] in if on { self?.input.keyDown("d", run: true) } else { self?.input.keyUp("d") } } }
+        run(.sequence([
+            w(1),
+            reset("A jab (expect none)"), fire(.tap), w(2.2), report(),
+            reset("B heavy attack / hook (light)"), fire(.swipe(.right)), w(2.2), report(),
+            reset("C power dash (medium)", gap: 330), sprint(true), w(0.7), fire(.swipe(.right)), w(0.5), sprint(false), w(2.2), report(),
+            reset("D hook into uppercut (heavy)"), fire(.swipe(.right)), w(0.3), fire(.swipe(.up)), w(3), report(),
+            reset("E ground smash alone (heavy)", gap: 150), act { h, _ in h.debugPerform(MoveTable.groundSmash) }, w(2.5), report(),
+            reset("F air slam dive + landing shockwave (massive)", gap: 60), fire(.swipe(.up)), w(0.5), fire(.swipe(.down)), w(3), report(),
+            reset("G uppercut whiffs (windup only)", gap: 400), fire(.swipe(.right)), w(0.3), fire(.swipe(.up)), w(3), report(),
+            reset("H a KO with other enemies left (kill)"), act { _, e in e.debugSetHealth(5) }, fire(.tap), w(2.2), report(),
+            reset("I the LAST enemy falls (massive)", lastOne: true), act { _, e in e.debugSetHealth(5) }, fire(.tap), w(2.5), report(),
+            reset("D2 uppercut alone, one enemy in range"), act { h, _ in h.debugPerform(MoveTable.chain(from: "heavy attack", .up)!) }, w(3), report(),
+            reset("J same uppercut, TWO enemies in range (expect ~25% bigger than D2)", second: true),
+            act { h, _ in h.debugPerform(MoveTable.chain(from: "heavy attack", .up)!) }, w(3), report(),
+            reset("K ENEMY uppercuts the hero (expect none)"), act { _, e in e.debugPerform(MoveTable.chain(from: "heavy attack", .up)!) }, w(2.5), report()
+        ]))
     }
 
     /// Launch with `-bowtest`: shooting, ammo, arrow hits, dodging, interrupts, quiver and swapping. Prints `BOWTEST` lines.
@@ -606,24 +683,41 @@ final class GameScene: SKScene {
     // MARK: Loop
 
     override func update(_ currentTime: TimeInterval) {
-        let dt = lastTime == 0 ? 0 : min(currentTime - lastTime, 1.0 / 20)
+        let realDT = lastTime == 0 ? 0 : min(currentTime - lastTime, 1.0 / 20)
         lastTime = currentTime
+        realNow = currentTime
+        let sample: (zoom: CGFloat, slow: CGFloat) = fxEnabled ? fx.sample(at: currentTime) : (0, 1)
+        speed = sample.slow                 // SKScene.speed also slows every SKAction: animations, effects, scripted tests
+        let dt = realDT * Double(sample.slow)
+        gameTime += dt
+        let now = gameTime
+        if args.contains("-fxtest") {
+            fxPeakZoom = max(fxPeakZoom, sample.zoom); fxMinScale = min(fxMinScale, sample.slow)
+            if sample.zoom > 0.001 || sample.slow < 0.999 { fxActive += realDT; NSLog("FXSAMPLE zoom=%.3f ts=%.2f", sample.zoom, sample.slow) }
+        }
 
         let bounds = WorldBounds(minX: level.minX + level.heroInset, maxX: level.maxX - level.heroInset,
                                  minY: laneMinY, maxY: groundHeight - 30)
         crowd.members = enemies
-        hero.step(now: currentTime, dt: dt, bounds: bounds, foes: enemies)
-        for e in enemies { e.step(now: currentTime, dt: dt, bounds: bounds, foes: [hero]) }
+        hero.step(now: now, dt: dt, bounds: bounds, foes: enemies)
+        for e in enemies { e.step(now: now, dt: dt, bounds: bounds, foes: [hero]) }
         separateEnemies(dt: CGFloat(dt), bounds: bounds)
         pickups.step(dt: CGFloat(dt), minX: level.minX + 20, maxX: level.maxX - 20)
         arrows.step(dt: CGFloat(dt), minX: level.minX, maxX: level.maxX)
-        updateCombat(now: currentTime)
+        updateCombat(now: now)
         updateDebug()
 
-        // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps)
-        let follow = min(1, CGFloat(dt) * 6)
-        let camTargetY = baseCamY + (hero.rig.position.y - laneStartY) * verticalFollow
-        let camMinX = level.minX + size.width / 2, camMaxX = max(camMinX, level.maxX - size.width / 2)
+        // Camera follows the hero in both axes (vertical is damped so the horizon shifts, not snaps).
+        // Moments zoom it in; while zoomed it also drifts toward the hero's chest so he stays the focus.
+        let follow = min(1, CGFloat(realDT) * 6)
+        let camScale = 1 - sample.zoom
+        cam.setScale(camScale)
+        let focus = min(1, sample.zoom / 0.05)
+        var camTargetY = baseCamY + (hero.rig.position.y - laneStartY) * verticalFollow
+        let chest = hero.rig.position.y + (hero.rig.height + 60) * hero.rig.scaleFactor
+        camTargetY += (chest - camTargetY) * focus * 0.5
+        let halfW = size.width / 2 * camScale
+        let camMinX = level.minX + halfW, camMaxX = max(camMinX, level.maxX - halfW)
         let camTargetX = min(max(hero.rig.position.x, camMinX), camMaxX)
         cam.position.x += (camTargetX - cam.position.x) * follow
         cam.position.y += (camTargetY - cam.position.y) * follow

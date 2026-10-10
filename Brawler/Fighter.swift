@@ -44,6 +44,7 @@ final class Fighter {
     let name: String
     let rig: HumanoidRig
     var stats: FighterStats
+    var onMoveStart: ((Move) -> Void)?     // the scene listens on the hero for camera windups
     var brain: Brain?                      // who is driving this fighter (player or AI)
     weak var projectiles: ProjectileField?
     private(set) var ammo: Int?
@@ -105,6 +106,7 @@ final class Fighter {
     var incapacitated: Bool { dead || isHurt || isDown }
     var hittable: Bool { !dead && !isDown }
     var currentMoveName: String { current?.move.name ?? "-" }
+    var currentMove: Move? { current?.move }
 
     /// Hit regions of the current move that are live this instant.
     var activeHits: [(index: Int, hit: Hit, power: CGFloat)] {
@@ -292,6 +294,7 @@ final class Fighter {
     }
 
     private func perform(_ move: Move) {
+        onMoveStart?(move)
         current = (move, now)
         claims = [:]
         buffered = nil

@@ -3,7 +3,7 @@ import SpriteKit
 enum Combat {
     static let bodyHalfWidth: CGFloat = 24     // how far a target's body reaches into a hit region
 
-    struct Contact { let point: CGPoint; let damage: CGFloat }
+    struct Contact { let point: CGPoint; let damage: CGFloat; var attacker: Fighter? = nil; var move: Move? = nil; var ko = false }
 
     /// Applies every active hit that overlaps an opposing fighter this frame.
     /// A move hits each target at most once per hit window. Lower array index wins a same-frame trade.
@@ -15,12 +15,14 @@ enum Combat {
                     guard !a.isHurt, overlaps(hit, from: a, to: t), a.claim(index, t) else { continue }
                     let dmg = hit.damage * power * a.damageMultiplier
                     let move = a.currentMoveName
+                    let moveUsed = a.currentMove
                     t.receive(hit, power: power, scale: a.damageMultiplier, from: a)
                     let stop = min(0.12, 0.03 + Double(dmg) * 0.004)      // hit-stop: heavier hits freeze longer
                     a.hitStop(stop); t.hitStop(stop)
                     let toward: CGFloat = a.rig.position.x < t.rig.position.x ? -1 : 1
                     contacts.append(Contact(point: CGPoint(x: t.rig.position.x + toward * 10,
-                                                           y: t.rig.position.y + t.rig.height + 60), damage: dmg))
+                                                           y: t.rig.position.y + t.rig.height + 60), damage: dmg,
+                                            attacker: a, move: moveUsed, ko: t.dead))
                     NSLog("HIT %@ -> %@ [%@] dmg %.1f hp %.1f%@", a.name, t.name, move, dmg, t.health,
                           t.dead ? " KO" : (t.launched ? " LAUNCH" : ""))
                 }
@@ -41,7 +43,8 @@ enum Combat {
                 let dmg = a.hit.damage * scale
                 t.receive(a.hit, power: 1, scale: scale, from: a.owner, away: a.dir)
                 t.hitStop(0.04)
-                contacts.append(Contact(point: CGPoint(x: t.rig.position.x - a.dir * 10, y: t.rig.position.y + t.rig.height + 62), damage: dmg))
+                contacts.append(Contact(point: CGPoint(x: t.rig.position.x - a.dir * 10, y: t.rig.position.y + t.rig.height + 62), damage: dmg,
+                                            attacker: a.owner, move: nil, ko: t.dead))
                 NSLog("HIT %@ -> %@ [arrow] dmg %.1f hp %.1f%@ at x%.0f y%.0f", a.owner.name, t.name, dmg, t.health, t.dead ? " KO" : "", t.rig.position.x, t.rig.position.y)
                 field.remove(a, hit: true)
                 break

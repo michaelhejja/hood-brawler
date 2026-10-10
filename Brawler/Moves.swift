@@ -91,9 +91,11 @@ struct Move {
     var grab: TimeInterval = -1      // >= 0: picks up whatever is at the fighter's feet this long into the move
     var fire: TimeInterval = -1      // >= 0: launches `projectile` this long into the move (uses one ammo)
     var projectile: Hit? = nil
+    var emphasis = Emphasis.none     // camera zoom / slow-mo when the hero performs it (bigger moment, bigger effect)
 
     func hitting(_ h: Hit...) -> Move { var m = self; m.hits = h; return m }
     var armed: Move { var m = self; m.usesWeapon = true; return m }
+    func emphasized(_ e: Emphasis) -> Move { var m = self; m.emphasis = e; return m }
 }
 
 enum MoveTable {
@@ -106,7 +108,7 @@ enum MoveTable {
         (.grounded, .tap,     Move(name: "punch",         animation: .jab,  lock: 0.28).hitting(.jab)),
         (.grounded, .up,      Move(name: "small jump",    jumpHeight: 170)),
         (.grounded, .down,    Move(name: "pick up",       animation: .pickup, lock: 0.45, grab: 0.2)),
-        (.grounded, .forward, Move(name: "heavy attack",  animation: .hook, lock: 0.5, lunge: 140).hitting(.hook).armed),
+        (.grounded, .forward, Move(name: "heavy attack",  animation: .hook, lock: 0.5, lunge: 140).hitting(.hook).armed.emphasized(.light)),
 
         // Fully running
         (.running,  .tap,     Move(name: "dash attack",   animation: .jab,  lock: 0.3, lunge: 560).hitting(.dashJab)),
@@ -115,19 +117,19 @@ enum MoveTable {
         (.running,  .back,    Move(name: "skid stop",     animation: .land, lock: 0.3, brake: 0.3)), // (placeholder) land pose
 
         // In the air
-        (.airborne, .down,    Move(name: "air slam",      animation: .slam, slam: true, power: 1.0).hitting(.diveSlam).armed),
+        (.airborne, .down,    Move(name: "air slam",      animation: .slam, slam: true, power: 1.0).hitting(.diveSlam).armed.emphasized(.medium)),
     ]
 
     // Combo links: after `from` (by move name), `trigger` gives the next move. Input-driven: no hit required.
-    private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760).hitting(.dashHook).armed
+    private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760).hitting(.dashHook).armed.emphasized(.medium)
 
     /// Running ground slam. Same shockwave and knockback as the air slam, a bit less powerful.
-    static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, advance: 150, advanceStart: 0, advanceDuration: 0.27, brake: 0.4, power: 0.7).hitting(.smash).armed
+    static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, advance: 150, advanceStart: 0, advanceDuration: 0.27, brake: 0.4, power: 0.7).hitting(.smash).armed.emphasized(.heavy)
 
-    private static let uppercut = Move(name: "uppercut", animation: .uppercut, jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26).hitting(.uppercut).armed
+    private static let uppercut = Move(name: "uppercut", animation: .uppercut, jumpHeight: 260, jumpRise: 0.22, jumpFall: 0.34, jumpHang: 0.26).hitting(.uppercut).armed.emphasized(.heavy)
 
     /// Landing from an air slam: a short recovery during which the combo chain is open from the first frame.
-    static let slamLanding = Move(name: "slam landing", animation: .slamLand, lock: 0.3, cancelAt: 0).hitting(.shockwave).armed
+    static let slamLanding = Move(name: "slam landing", animation: .slamLand, lock: 0.3, cancelAt: 0).hitting(.shockwave).armed.emphasized(.massive)
 
     private static let chains: [(from: String, trigger: Trigger, move: Move)] = [
         ("punch",      .tap,  Move(name: "punch 2",      animation: .jab,  lock: 0.28, lunge: 80).hitting(.jab)),
