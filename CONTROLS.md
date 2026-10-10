@@ -60,5 +60,8 @@ Next: hit detection, then dedicated animations for each move.
   knockback, launch, stun). Same code for any Fighter; fighters only hit other `team`s. Damage = hit.damage x move.power x attacker.damageScale.
   Reactions: flinch, blasted flat (heavy knockback), launched into the air (juggle: any hit keeps them up; a spike drives them down), KO.
   Hit-stop freezes both fighters briefly, longer for heavier hits.
-- Next: enemy spacing so they don't stack, tune damage/knockback, hit reaction animations.
-- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` (scripted hit cases, logs `HIT` lines).
+- Crowd control (`CrowdDirector`, Brain.swift): at most 2 enemies hold an attack token and close in (started 0.6s apart,
+  nearest first); the rest wait in a ring ~230pt out, spread across lanes by slot, and take over as tokens free up.
+  A soft separation push (GameScene) keeps grounded enemies from standing on each other; it never disturbs an attack.
+- Next: tune damage/knockback, hit reaction animations.
+- Debug launch args: `-game`, `-lab`, `-demo` (scripted inputs), `-pose <animation>` (slow-mo, hero + skeletons), `-dump` (node tree), `-enemylog` (log enemy moves), `-passive` (enemies get no brain), `-hittest` / `-divetest` (scripted hit cases, log `HIT` lines), `-crowdtest` (hero can't die; logs `CROWD` spacing metrics).

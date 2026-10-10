@@ -67,6 +67,8 @@ final class GameScene: SKScene {
 
     private let args = ProcessInfo.processInfo.arguments
     private var testMode: Bool { args.contains("-hittest") || args.contains("-divetest") }
+    private var nextCrowdLog: TimeInterval = 0
+    private let crowd = CrowdDirector()
     private var bars: [ObjectIdentifier: HealthBar] = [:]
     private let heroBar = HealthBar(width: 300, height: 14)
     private var nextSpawn: TimeInterval = 0
@@ -74,7 +76,7 @@ final class GameScene: SKScene {
     private func spawnEnemy(x: CGFloat, y: CGFloat) {
         let e = Fighter(name: "skeleton", skin: SkeletonSkin(), stats: .skeleton)
         e.team = 1
-        if !args.contains("-passive"), !testMode { e.brain = EnemyBrain() }
+        if !args.contains("-passive"), !testMode { e.brain = EnemyBrain(director: crowd) }
         e.rig.scaleFactor = 1.3
         e.rig.facingRight = false
         e.rig.position = CGPoint(x: x, y: y)
@@ -113,7 +115,41 @@ final class GameScene: SKScene {
         }
     }
 
+    /// `-crowdtest` metrics: closest pair of same-lane enemies, and how many are in melee range of the hero.
+    private func logCrowd(now: TimeInterval) {
+        guard args.contains("-crowdtest"), now >= nextCrowdLog else { return }
+        nextCrowdLog = now + 0.5
+        let live = enemies.filter { $0.hittable }
+        var gap = CGFloat.infinity
+        for i in 0..<live.count { for j in (i + 1)..<live.count {
+            let a = live[i].rig.position, b = live[j].rig.position
+            if abs(a.y - b.y) < 24 { gap = min(gap, abs(a.x - b.x)) }
+        } }
+        let engaged = live.filter { abs($0.rig.position.x - hero.rig.position.x) < 140 && abs($0.rig.position.y - hero.rig.position.y) < 30 }.count
+        NSLog("CROWD n=%d min_gap=%@ engaged=%d", live.count, gap.isFinite ? String(Int(gap)) : "-", engaged)
+    }
+
+    /// Soft push so grounded enemies never stand on top of each other (they ease apart rather than snap).
+    private func separateEnemies(dt: CGFloat, bounds: WorldBounds) {
+        let live = enemies.filter { $0.hittable && !$0.airborne }
+        let spacingX: CGFloat = 70, spacingY: CGFloat = 30
+        let k = min(1, dt * 10)
+        for i in 0..<live.count {
+            for j in (i + 1)..<live.count {
+                let a = live[i], b = live[j]
+                let dx = a.rig.position.x - b.rig.position.x, dy = a.rig.position.y - b.rig.position.y
+                guard abs(dx) < spacingX, abs(dy) < spacingY else { continue }
+                let sx: CGFloat = dx == 0 ? (i < j ? 1 : -1) : (dx > 0 ? 1 : -1)
+                let sy: CGFloat = dy == 0 ? (i < j ? 1 : -1) : (dy > 0 ? 1 : -1)
+                let px = (spacingX - abs(dx)) * 0.5 * k, py = (spacingY - abs(dy)) * 0.5 * k
+                a.nudge(dx: sx * px, dy: sy * py, bounds: bounds)
+                b.nudge(dx: -sx * px, dy: -sy * py, bounds: bounds)
+            }
+        }
+    }
+
     private func updateCombat(now: TimeInterval) {
+        logCrowd(now: now)
         for c in Combat.resolve([hero] + enemies) { spawnImpact(at: c.point, damage: c.damage) }
 
         // Health bars float over enemies (hidden at full health); the hero's sits at the bottom of the screen
@@ -228,6 +264,7 @@ final class GameScene: SKScene {
         }
         if ProcessInfo.processInfo.arguments.contains("-hittest") { runHitTest() }
         if ProcessInfo.processInfo.arguments.contains("-divetest") { runDiveTest() }
+        if ProcessInfo.processInfo.arguments.contains("-crowdtest") { hero.stats.maxHealth = 1_000_000; hero.restore() }
         if ProcessInfo.processInfo.arguments.contains("-dump") { dumpTree(hero.rig) }
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-pose"), i + 1 < args.count, let a = CharacterAnimation(rawValue: args[i + 1]) {
@@ -425,8 +462,10 @@ final class GameScene: SKScene {
 
         let bounds = WorldBounds(minX: level.minX + level.heroInset, maxX: level.maxX - level.heroInset,
                                  minY: laneMinY, maxY: groundHeight - 30)
+        crowd.members = enemies
         hero.step(now: currentTime, dt: dt, bounds: bounds, foes: enemies)
         for e in enemies { e.step(now: currentTime, dt: dt, bounds: bounds, foes: [hero]) }
+        separateEnemies(dt: CGFloat(dt), bounds: bounds)
         updateCombat(now: currentTime)
         updateDebug()
 

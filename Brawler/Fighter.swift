@@ -121,7 +121,7 @@ final class Fighter {
     }
 
     /// Mid-attack with a live move (not just recovering).
-    private var attacking: Bool {
+    var attacking: Bool {
         guard let c = current, !incapacitated else { return false }
         return !c.move.hits.isEmpty && now <= c.start + c.move.lock
     }
@@ -136,6 +136,14 @@ final class Fighter {
                         : max(x, min(x0, f.rig.position.x + Fighter.personalSpace))
         }
         return x
+    }
+
+    /// Gentle positional push from the crowd (separation). Ignored while mid-attack so it never disturbs a strike.
+    func nudge(dx: CGFloat, dy: CGFloat, bounds: WorldBounds) {
+        guard !attacking else { return }
+        rig.position.x = min(max(rig.position.x + dx, bounds.minX), bounds.maxX)
+        rig.position.y = min(max(rig.position.y + dy, bounds.minY), bounds.maxY)
+        rig.zPosition = 300 - rig.position.y
     }
 
     /// Test hook: run a move directly, skipping the gesture / context / chain rules.
