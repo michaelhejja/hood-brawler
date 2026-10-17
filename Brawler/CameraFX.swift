@@ -15,6 +15,7 @@ struct Emphasis {
     static let medium  = Emphasis(windup: 0.01, impact: 0.045, slow: 0.8, hold: 0.08, release: 0.3)
     static let heavy   = Emphasis(windup: 0.03, impact: 0.08, slow: 0.55, hold: 0.2, release: 0.4)
     static let massive = Emphasis(windup: 0.04, impact: 0.13, slow: 0.35, hold: 0.32, release: 0.55)
+    static let special = Emphasis(windup: 0.12, impact: 0.2, slow: 0.22, hold: 0.55, release: 0.8)   // the hero's special: biggest moment in the game
     static let kill    = Emphasis(impact: 0.05, slow: 0.6, hold: 0.15, release: 0.35)    // any KO, whatever landed it
 }
 

@@ -2,13 +2,25 @@ import SpriteKit
 
 enum CharacterAnimation: String, CaseIterable, Identifiable {
     case idle, run, attack, leap, hit
+    case roll                  // backward tumble (dodge)
+    case haymaker              // third punch of a string: big overhand finisher
     case jab, hook             // boxing pair: jab = tap (off hand), hook = forward swipe (weapon hand)
     case jump, fall, land      // driven by the scene's height physics, not shown in the lab
+    case bite                  // bat: wings snap back, lunge and bite
+    case bullRush              // special release: head down, shoulders forward
+    case whirlwind             // special release: arms out, two full spins
+    case hammerSlam            // hammer: long overhead wind-up, then a ground slam (impact at 0.55s)
+    case guardUp, shieldBurst  // shield: raised guard (held until another animation) and the release
+    case airStrike             // quick mid-air punch-kick; holds its pose until the fall
     case slam, slamLand        // air-to-ground attack: the dive, then the impact
     case smash                 // running ground slam: two-handed overhead swing
     case uppercut              // launcher: cock low, swing up, head thrown back
     case knockdown             // blasted flat: topples backwards and stays down
     case pickup                // crouch and reach for the ground
+    case headRock              // heavy hit on something too big to launch: head snaps back
+    case powerUp               // looping rage charge (special)
+    case rageSlam              // the special's release: arms up, then a ground pound
+    case throwRock             // overhand throw (the rock)
     case shoot                 // draw a bow and loose an arrow forward
     var id: String { rawValue }
     static let showcase: [CharacterAnimation] = [.idle, .run, .jab, .hook, .uppercut, .smash, .pickup, .shoot, .hit, .slam]
@@ -42,6 +54,8 @@ final class HumanoidRig: SKNode {
     /// Distance above the ground (pt, unscaled). The scene's physics drives this.
     var height: CGFloat = 0 { didSet { rig.position.y = height; updateShadow() } }
 
+    var flies = false                       // wings (the arms) flap together; set by the fighter before it first plays idle
+
     var scaleFactor: CGFloat = 1 { didSet { applyScale() } }
     var facingRight = true { didSet { applyScale() } }
 
@@ -71,6 +85,7 @@ final class HumanoidRig: SKNode {
         sword = w?.make() ?? SKNode()
         sword.position = CGPoint(x: 0, y: -armLength)
         sword.zRotation = swordRest
+        sword.zPosition = -1                      // behind the arm, so the hand wraps the grip
         armWeapon.addChild(sword)
     }
 
@@ -91,14 +106,15 @@ final class HumanoidRig: SKNode {
         rig.addChild(body)
         body.position = CGPoint(x: 0, y: restY)
 
-        legBack.position = CGPoint(x: layout.legBackX, y: 0);   legBack.zPosition = -3
-        legFront.position = CGPoint(x: layout.legFrontX, y: 0); legFront.zPosition = -2
+        legBack.position = CGPoint(x: layout.legBackX, y: 0);   legBack.zPosition = -2     // weapon side: nearest the camera
+        legFront.position = CGPoint(x: layout.legFrontX, y: 0); legFront.zPosition = -3  // off-hand side: further away
         armOff.position = layout.offShoulder;                   armOff.zPosition = -1
         armWeapon.position = layout.weaponShoulder;             armWeapon.zPosition = 3
         head.position = layout.headPivot;                       head.zPosition = 2
         head.addChild(skin.makeHead())
 
         sword.position = CGPoint(x: 0, y: -armLength)
+        sword.zPosition = -1
         armWeapon.addChild(sword)
 
         [legBack, legFront, armOff, torso, head, armWeapon].forEach(body.addChild)
@@ -126,6 +142,19 @@ final class HumanoidRig: SKNode {
         case .knockdown: knockdown()
         case .pickup: pickup()
         case .shoot: shoot()
+        case .throwRock: throwRock()
+        case .powerUp: powerUp()
+        case .airStrike: airStrike()
+        case .bite: bite()
+        case .guardUp: guardUp()
+        case .shieldBurst: shieldBurst()
+        case .hammerSlam: hammerSlam()
+        case .whirlwind: whirlwind()
+        case .bullRush: bullRush()
+        case .haymaker: haymaker()
+        case .roll: roll()
+        case .rageSlam: rageSlam()
+        case .headRock: headRock()
         case .slamLand: slamLand()
         }
     }
@@ -152,13 +181,94 @@ final class HumanoidRig: SKNode {
 
     // MARK: Animations
 
+    private func bullRush() {
+        track(armWeapon, [(1.5, 0.08), (nil, 0.8), (armRest, 0.15)])
+        track(armOff,    [(1.5, 0.08), (nil, 0.8), (0, 0.15)])
+        track(legFront,  [(0.6, 0.08), (nil, 0.8), (0, 0.15)])
+        track(legBack,   [(-0.6, 0.08), (nil, 0.8), (0, 0.15)])
+        track(body,      [(-0.5, 0.08), (nil, 0.8), (0, 0.15)])
+        body.run(.sequence([pose(y: restY * 0.9, x: 20, d: 0.08), .wait(forDuration: 0.8), pose(y: restY, d: 0.15), returnToIdle]))
+        for t in [0.1, 0.3, 0.5, 0.7] { run(.sequence([.wait(forDuration: t), .run { [weak self] in self?.puff() }])) }       // dust all the way along
+    }
+
+    private func whirlwind() {
+        track(armWeapon, [(1.45, 0.08), (nil, 0.5), (armRest, 0.15)])
+        track(armOff,    [(1.45, 0.08), (nil, 0.5), (0, 0.15)])
+        track(legFront,  [(0.5, 0.08), (nil, 0.5), (0, 0.15)])
+        track(legBack,   [(-0.5, 0.08), (nil, 0.5), (0, 0.15)])
+        body.run(.sequence([.rotate(byAngle: 4 * .pi, duration: 0.6), .run { [weak self] in self?.body.zRotation = 0 }]))
+        body.run(.sequence([pose(y: restY + 12, d: 0.1, .easeOut), .wait(forDuration: 0.5), pose(y: restY, d: 0.15), returnToIdle]))
+        run(.sequence([.wait(forDuration: 0.08), .run { [weak self] in self?.spawnSlash(start: 0, end: .pi * 1.9, radius: 120, lift: 50, clockwise: false) }]))
+        run(.sequence([.wait(forDuration: 0.3), .run { [weak self] in self?.spawnSlash(start: 0, end: .pi * 1.9, radius: 140, lift: 50, clockwise: false) }]))
+    }
+
+    private func hammerSlam() {
+        armOff.run(.move(to: layout.gripPoint, duration: 0.15))
+        armOff.zPosition = 4
+        let wind: CGFloat = 3.5, strike: CGFloat = 0.8
+        track(armWeapon, [(wind, 0.3), (nil, 0.05), (strike, 0.07), (nil, 0.25), (armRest, 0.18)])
+        track(armOff,    [(wind, 0.3), (nil, 0.05), (strike, 0.07), (nil, 0.25), (0, 0.18)])
+        track(sword,     [(.pi, 0.2), (nil, 0.25), (swordRest, 0.25)])
+        track(body,      [(0.35, 0.3), (nil, 0.05), (-0.4, 0.07), (nil, 0.25), (0, 0.18)])
+        track(legFront,  [(0.3, 0.3), (nil, 0.05), (-0.2, 0.07), (nil, 0.35)])
+        track(legBack,   [(-0.3, 0.3), (nil, 0.05), (0.3, 0.07), (nil, 0.35)])
+        body.run(.sequence([
+            pose(y: restY * 0.95, x: -14, d: 0.3, .easeOut),                       // rears back, hammer high
+            .wait(forDuration: 0.05),
+            pose(y: restY * 0.78, x: 26, sx: 1.15, sy: 0.82, d: 0.07, .easeIn),    // crash down
+            pose(y: restY * 0.88, d: 0.25),
+            pose(y: restY, d: 0.18),
+            returnToIdle
+        ]))
+        run(.sequence([.wait(forDuration: 0.42), .run { [weak self] in self?.puff(); self?.shockwave(scale: 2.6, at: 130) }]))
+    }
+
+    /// Shield held out in front, braced.
+    private func guardUp() {
+        track(armWeapon, [(1.5, 0.12)])
+        track(armOff, [(1.3, 0.12)])
+        track(sword, [(-1.5, 0.12)])                    // cancels the arm's turn, so the shield stands upright in front of you
+        track(legFront, [(0.35, 0.12)])
+        track(legBack, [(-0.35, 0.12)])
+        track(body, [(0.1, 0.12)])
+        body.run(pose(y: restY * 0.93, x: 8, d: 0.12))
+    }
+
+    private func shieldBurst() {
+        track(armWeapon, [(0.9, 0.08), (1.75, 0.07), (nil, 0.15), (armRest, 0.2)])
+        track(armOff, [(0.9, 0.08), (1.6, 0.07), (nil, 0.15), (0, 0.2)])
+        track(sword, [(-0.9, 0.08), (-1.75, 0.07), (nil, 0.15), (swordRest, 0.2)])
+        body.run(.sequence([pose(y: restY, x: -10, d: 0.08), pose(y: restY, x: 28, d: 0.07, .easeIn), .wait(forDuration: 0.15), pose(y: restY, d: 0.2), returnToIdle]))
+        run(.sequence([.wait(forDuration: 0.08), .run { [weak self] in self?.spawnSlash(start: 1.4, end: -0.2, radius: 140, lift: 50) }]))
+    }
+
+    /// 0...1: how much energy the shield is holding (it glows).
+    func setGuardCharge(_ k: CGFloat) { sword.childNode(withName: "glow")?.alpha = min(1, max(0, k)) * 0.85 }
+
+    private func flap(_ p: Double, lean: CGFloat) {
+        body.zRotation = lean
+        body.run(.repeatForever(.sequence([pose(y: restY + 7, d: p), pose(y: restY - 1, d: p)])))
+        track(armWeapon, [(2.5, p), (0.3, p)], loop: true)
+        track(armOff, [(2.3, p), (0.2, p)], loop: true)
+    }
+
+    private func bite() {
+        track(armWeapon, [(2.5, 0.07), (nil, 0.08), (0.5, 0.2)])
+        track(armOff, [(2.3, 0.07), (nil, 0.08), (0.2, 0.2)])
+        track(head, [(0.35, 0.07), (-0.15, 0.08), (0, 0.2)])
+        track(body, [(-0.3, 0.07), (-0.12, 0.08), (0, 0.2)])
+        body.run(.sequence([pose(y: restY - 4, x: -8, d: 0.07), pose(y: restY, x: 22, d: 0.08, .easeIn), pose(y: restY, d: 0.2), returnToIdle]))
+    }
+
     private func idle() {
+        if flies { flap(0.17, lean: 0); return }
         body.run(.repeatForever(.sequence([pose(y: restY + 2, d: 0.7), pose(y: restY, d: 0.7)])))
         track(armWeapon, [(armRest + 0.08, 0.7), (armRest - 0.05, 0.7)], loop: true)
         track(armOff, [(-0.05, 0.7), (0.06, 0.7)], loop: true)
     }
 
     private func run() {
+        if flies { flap(0.1, lean: -0.3); return }
         let c = 0.16
         body.zRotation = -0.18
         body.run(.repeatForever(.sequence([pose(y: restY + 5, d: c), pose(y: restY, d: c)])))
@@ -184,15 +294,20 @@ final class HumanoidRig: SKNode {
 
     /// Tap: quick straight punch with the off hand (the one without the sword).
     private func jab() {
-        track(armOff, [(1.55, 0.06), (nil, 0.05), (0, 0.13)])
-        track(armWeapon, [(armRest - 0.2, 0.06), (nil, 0.05), (armRest, 0.13)])
+        track(armOff, [(1.55, 0.04), (nil, 0.03), (0, 0.1)])
+        track(armWeapon, [(armRest - 0.35, 0.04), (nil, 0.03), (armRest, 0.1)])   // guard hand tucks up
+        // Whole-body punch: step into a lunge, drop the weight, twist the shoulders through, then recover.
+        track(legFront, [(0.55, 0.04), (nil, 0.03), (0, 0.1)])       // lead foot steps out and plants
+        track(legBack,  [(-0.45, 0.04), (nil, 0.03), (0, 0.1)])      // rear leg drives off the ground
+        track(body,     [(-0.14, 0.04), (nil, 0.03), (0, 0.1)])      // shoulders lean into the punch
+        track(head,     [(0.1, 0.04), (nil, 0.03), (0, 0.1)])        // chin stays level against the lean
         body.run(.sequence([
-            pose(y: restY, x: 10, d: 0.06, .easeIn),
-            .wait(forDuration: 0.05),
-            pose(y: restY, d: 0.13),
+            pose(y: restY * 0.94, x: 12, d: 0.04, .easeIn),
+            .wait(forDuration: 0.03),
+            pose(y: restY, d: 0.1),
             returnToIdle
         ]))
-        run(.sequence([.wait(forDuration: 0.06), .run { [weak self] in self?.pop(at: CGPoint(x: 50, y: 0)) }]))
+        run(.sequence([.wait(forDuration: 0.04), .run { [weak self] in self?.pop(at: CGPoint(x: 50, y: 0)) }]))
     }
 
     /// Forward swipe: wide hooking swing with the weapon hand, committing the whole body.
@@ -209,6 +324,39 @@ final class HumanoidRig: SKNode {
         ]))
         track(body, [(0.2, 0.1), (-0.25, 0.07), (nil, 0.1), (0, 0.2)])   // lean back, then throw the shoulder through
         run(.sequence([.wait(forDuration: 0.1), .run { [weak self] in self?.spawnSlash(start: 1.0, end: -0.6, radius: 80, lift: 40) }]))
+    }
+
+    /// Coil back with the whole body, then unwind into a huge overhand: hips and shoulders rotate, the rear leg drives.
+    private func haymaker() {
+        track(armWeapon, [(-1.5, 0.17), (1.55, 0.08), (nil, 0.12), (armRest, 0.25)])      // cocked far back, then thrown
+        track(armOff,    [(1.7, 0.17), (0.4, 0.08), (nil, 0.12), (0, 0.25)])              // guard hand up by the chin
+        track(legFront,  [(-0.2, 0.17), (0.7, 0.08), (nil, 0.12), (0, 0.25)])             // lead foot steps through
+        track(legBack,   [(0.4, 0.17), (-0.7, 0.08), (nil, 0.12), (0, 0.25)])             // rear leg drives off
+        track(body,      [(0.32, 0.17), (-0.3, 0.08), (nil, 0.12), (0, 0.25)])            // wind up away, then throw the shoulder
+        track(head,      [(-0.12, 0.17), (0.14, 0.08), (nil, 0.12), (0, 0.25)])
+        body.run(.sequence([
+            pose(y: restY * 0.85, x: -20, d: 0.17, .easeOut),                              // sink and load the back foot
+            pose(y: restY * 0.92, x: 34, d: 0.08, .easeIn),                                // explode forward
+            .wait(forDuration: 0.12),
+            pose(y: restY, d: 0.25),
+            returnToIdle
+        ]))
+        run(.sequence([.wait(forDuration: 0.17), .run { [weak self] in self?.pop(at: CGPoint(x: 70, y: 40)) }]))
+    }
+
+    /// Tuck and tumble backward in 0.3s: arms and legs pull in, the body does one full backflip-style rotation, then lands low.
+    private func roll() {
+        track(armWeapon, [(1.2, 0.06), (nil, 0.2), (armRest, 0.12)])
+        track(armOff,    [(1.2, 0.06), (nil, 0.2), (0, 0.12)])
+        track(legFront,  [(1.3, 0.06), (nil, 0.2), (0, 0.12)])
+        track(legBack,   [(1.1, 0.06), (nil, 0.2), (0, 0.12)])
+        track(head,      [(0.5, 0.06), (nil, 0.2), (0, 0.12)])
+        body.run(.sequence([
+            .group([pose(y: restY * 0.8, sx: 0.9, sy: 0.85, d: 0.06, .easeOut), .rotate(byAngle: 0.4, duration: 0.06)]),
+            .rotate(byAngle: .pi * 2 - 0.4, duration: 0.24),
+            .group([pose(y: restY, d: 0.1), .run { [weak self] in self?.body.zRotation = 0 }]),
+            returnToIdle
+        ]))
     }
 
     private func leap() {
@@ -261,6 +409,17 @@ final class HumanoidRig: SKNode {
         track(sword, [(.pi, 0.1)])
     }
 
+    /// Mid-air strike: lead arm snaps out, rear knee tucks up, body leans in. No return to idle: the jump's fall takes over.
+    private func airStrike() {
+        track(armWeapon, [(1.55, 0.05), (nil, 0.12), (0.9, 0.12)])
+        track(armOff, [(-0.5, 0.05), (nil, 0.12), (0.2, 0.12)])
+        track(legFront, [(1.2, 0.06), (nil, 0.1), (0.5, 0.12)])
+        track(legBack, [(-0.4, 0.06), (nil, 0.1), (0, 0.12)])
+        track(body, [(-0.28, 0.05), (nil, 0.12), (-0.08, 0.14)])
+        track(head, [(0.1, 0.05), (nil, 0.12), (0, 0.14)])
+        body.run(pose(y: restY, x: 12, sx: 0.97, sy: 1.03, d: 0.06))
+    }
+
     /// Air-to-ground dive: whole body pitched hard forward, both hands thrust out ahead,
     /// weapon leading (blade extends straight along the arms). Rotation is clockwise-negative.
     private func slam() {
@@ -276,6 +435,14 @@ final class HumanoidRig: SKNode {
 
     /// Bow shot (0.45s): the weapon arm points straight ahead with the bow upright, the off hand draws the string back,
     /// release at 0.18s (the scene launches the arrow then), then everything settles.
+    /// Wind the arm back, then whip it forward. The rock leaves the hand 0.15s in.
+    private func throwRock() {
+        track(armWeapon, [(2.7, 0.12), (nil, 0.03), (0.8, 0.07), (nil, 0.1), (armRest, 0.14)])
+        track(armOff,    [(-0.6, 0.12), (nil, 0.03), (0.3, 0.07), (nil, 0.1), (0, 0.14)])
+        track(body,      [(0.1, 0.12), (nil, 0.03), (-0.12, 0.07), (nil, 0.1), (0, 0.14)])
+        body.run(.sequence([.wait(forDuration: 0.46), returnToIdle]))
+    }
+
     private func shoot() {
         track(armWeapon, [(1.5, 0.12), (nil, 0.06), (nil, 0.12), (armRest, 0.15)])
         track(sword,     [(4.712, 0.1), (nil, 0.2), (swordRest, 0.15)])              // bow upright: -90 degrees
@@ -289,17 +456,17 @@ final class HumanoidRig: SKNode {
 
     /// Crouch with the torso pitched forward and the front arm hanging straight down (world-vertical) to scoop something up.
     private func pickup() {
-        track(body, [(-0.6, 0.14), (nil, 0.1), (0, 0.18)])
+        track(body, [(-0.6, 0.09), (nil, 0.05), (0, 0.12)])
         body.run(.sequence([
-            pose(y: restY * 0.6, sx: 1.06, sy: 0.9, d: 0.14),
-            .wait(forDuration: 0.1),
-            pose(y: restY, d: 0.18),
+            pose(y: restY * 0.6, sx: 1.06, sy: 0.9, d: 0.09),
+            .wait(forDuration: 0.05),
+            pose(y: restY, d: 0.12),
             returnToIdle
         ]))
-        track(armOff,   [(0.6, 0.14), (nil, 0.1), (0, 0.18)])        // cancels the lean: the arm points straight down
-        track(head,     [(0.35, 0.14), (nil, 0.1), (0, 0.18)])       // eyes stay forward
-        track(legFront, [(0.6, 0.14), (nil, 0.1), (0, 0.18)])
-        track(legBack,  [(-0.5, 0.14), (nil, 0.1), (0, 0.18)])
+        track(armOff,   [(0.6, 0.09), (nil, 0.05), (0, 0.12)])        // cancels the lean: the arm points straight down
+        track(head,     [(0.35, 0.09), (nil, 0.05), (0, 0.12)])       // eyes stay forward
+        track(legFront, [(0.6, 0.09), (nil, 0.05), (0, 0.12)])
+        track(legBack,  [(-0.5, 0.09), (nil, 0.05), (0, 0.12)])
     }
 
     /// Blasted flat: topples backwards, limbs flung out, and stays down until the fighter gets up.
@@ -307,8 +474,9 @@ final class HumanoidRig: SKNode {
         track(body, [(1.5, 0.14)])
         body.run(pose(y: restY * 0.7, d: 0.14, .easeOut))
         track(head, [(0.25, 0.14)])
-        track(armWeapon, [(2.3, 0.14)])
-        track(armOff, [(1.9, 0.14)])
+        // Arms fly up with the impact, then drop and lie flat along the ground (the body is tipped ~86 deg, so ~0 is flat)
+        track(armWeapon, [(2.3, 0.14), (0.12, 0.38)])
+        track(armOff, [(1.9, 0.14), (nil, 0.05), (0.26, 0.36)])
         track(legFront, [(0.8, 0.14)])
         track(legBack, [(0.3, 0.14)])
     }
@@ -390,6 +558,70 @@ final class HumanoidRig: SKNode {
             pose(y: restY * 0.75, sx: 1.2, sy: 0.75, d: 0.05),
             pose(y: restY, d: 0.1, .easeOut)
         ]))
+    }
+
+    // MARK: Special
+
+    private func powerUp() {
+        track(armWeapon, [(2.5, 0.25), (2.1, 0.12), (2.5, 0.12)], loop: true)      // fists up, flexing
+        track(armOff,    [(2.5, 0.25), (2.1, 0.12), (2.5, 0.12)], loop: true)
+        track(legFront,  [(0.45, 0.25)])                                            // wide, planted stance
+        track(legBack,   [(-0.45, 0.25)])
+        track(head,      [(0.3, 0.25)])                                             // chin up, roaring
+        track(body,      [(-0.12, 0.25), (-0.2, 0.1), (-0.12, 0.1)], loop: true)
+        body.run(.repeatForever(.sequence([pose(y: restY * 0.88, x: 2, d: 0.05), pose(y: restY * 0.9, x: -2, d: 0.05)])))   // trembling
+    }
+
+    /// Arms overhead, then a crushing ground pound. The shockwave lands ~0.19s in (Hit.rageShockwave.start).
+    private func rageSlam() {
+        track(armWeapon, [(3.0, 0.14), (0.5, 0.05), (nil, 0.25), (armRest, 0.3)])
+        track(armOff,    [(3.0, 0.14), (0.5, 0.05), (nil, 0.25), (0, 0.3)])
+        track(legFront,  [(0.8, 0.14), (0.9, 0.05), (nil, 0.25), (0, 0.3)])
+        track(legBack,   [(-0.8, 0.14), (-0.9, 0.05), (nil, 0.25), (0, 0.3)])
+        track(body,      [(-0.15, 0.14), (0.3, 0.05), (nil, 0.25), (0, 0.3)])
+        track(head,      [(0.2, 0.14), (-0.1, 0.05), (nil, 0.25), (0, 0.3)])
+        body.run(.sequence([pose(y: restY + 16, d: 0.14, .easeOut), pose(y: restY * 0.74, d: 0.05, .easeIn),
+                            .wait(forDuration: 0.25), pose(y: restY, d: 0.3), returnToIdle]))
+    }
+
+    /// Red glow and rising embers behind the body while powering up.
+    private lazy var aura: SKNode = {
+        let n = SKNode(); n.position = CGPoint(x: 0, y: 90); n.zPosition = -0.5; n.isHidden = true
+        let glow = SKShapeNode(ellipseOf: CGSize(width: 130, height: 200))
+        glow.name = "glow"
+        glow.fillColor = SKColor(red: 1, green: 0.15, blue: 0.1, alpha: 0.3)
+        glow.strokeColor = SKColor(red: 1, green: 0.5, blue: 0.2, alpha: 0.8); glow.lineWidth = 4; glow.glowWidth = 10
+        n.addChild(glow); addChild(n)
+        return n
+    }()
+
+    func setAura(_ on: Bool) {
+        aura.removeAllActions()
+        aura.childNode(withName: "glow")?.removeAllActions()
+        aura.children.filter { $0.name != "glow" }.forEach { $0.removeFromParent() }
+        aura.isHidden = !on
+        guard on else { return }
+        aura.childNode(withName: "glow")?.run(.repeatForever(.sequence([
+            .group([.scale(to: 1.18, duration: 0.18), .fadeAlpha(to: 1, duration: 0.18)]),
+            .group([.scale(to: 0.95, duration: 0.18), .fadeAlpha(to: 0.5, duration: 0.18)])])))
+        aura.run(.repeatForever(.sequence([.wait(forDuration: 0.06), .run { [weak self] in self?.emitEmber() }])))
+    }
+
+    private func emitEmber() {
+        let e = styled(SKShapeNode(rect: CGRect(x: -3, y: -3, width: 6, height: 6)),
+                       SKColor(red: 1, green: .random(in: 0.3...0.7), blue: 0.1, alpha: 1), line: 0)
+        e.position = CGPoint(x: .random(in: -45...45), y: -85)
+        aura.addChild(e)
+        e.run(.sequence([.group([.moveBy(x: .random(in: -15...15), y: .random(in: 120...190), duration: 0.5), .fadeOut(withDuration: 0.5)]),
+                         .removeFromParent()]))
+    }
+
+    private func headRock() {
+        track(head, [(0.8, 0.09), (nil, 0.14), (0, 0.3)])
+        track(body, [(-0.18, 0.09), (nil, 0.14), (0, 0.3)])
+        track(armWeapon, [(1.1, 0.09), (armRest, 0.4)])
+        track(armOff, [(0.9, 0.09), (0, 0.4)])
+        body.run(.sequence([pose(y: restY, x: -10, d: 0.09, .easeOut), pose(y: restY, d: 0.4), returnToIdle]))
     }
 
     private func hit() {

@@ -52,21 +52,53 @@ struct Hit {
     var launch: CGFloat = 0              // > 0 pops the target into the air (juggle); < 0 spikes it down
     var stun: TimeInterval = 0.3
     var disarm = false                   // knocks the weapon out of the victim's hand regardless of knockback
+    var vsHeavy: CGFloat = 1             // damage multiplier against things too big to launch (giants, crates)
+    var shatters = false                 // breaks a raised shield outright and knocks it loose
+    var environmental = false            // comes from the level, not a fighter: no shield can block it
+    var chills: TimeInterval = 0         // slows the target's run speed for this long (ice)
 }
 
 extension Hit {
     static let arrow = Hit(start: 0, duration: 0, reach: 0...0, depth: 30, heightTolerance: 60, damage: 7, knockback: 160, stun: 0.3)
+    static let rock = Hit(start: 0, duration: 0, reach: 0...0, depth: 30, heightTolerance: 70, damage: 12, knockback: 260, stun: 0.4)
+    /// A thrown bomb does nothing in flight; it explodes on the ground after its fuse (see `explode` in the scene).
+    static let bombThrow = Hit(start: 0, duration: 0, reach: 0...0, damage: 0)
+    /// The blast: heavy, pops you into the air, and no shield blocks it. Hits everyone in range, thrower included.
+    static let bombBlast = Hit(start: 0, duration: 0, reach: 0...0, depth: 80, heightTolerance: 100, damage: 34, knockback: 650, launch: 380, stun: 0.8, environmental: true)
     /// Strong hits (launchers, spikes, heavy knockback) knock the weapon out of the victim's hand.
     var isStrong: Bool { disarm || launch != 0 || knockback >= 500 }
 
-    static let jab        = Hit(start: 0.05, duration: 0.09, reach: 0...115, damage: 6, knockback: 140, stun: 0.25)
+    static let jab        = Hit(start: 0.035, duration: 0.08, reach: 0...115, damage: 6, knockback: 140, stun: 0.25)
+    // Finisher: slow to land, knocks down (500+ knockback = a strong hit) but doesn't launch
+    static let haymaker   = Hit(start: 0.17, duration: 0.12, reach: 0...150, damage: 16, knockback: 540, stun: 0.6)
     static let hook       = Hit(start: 0.10, duration: 0.10, reach: 0...135, damage: 12, knockback: 300, stun: 0.4)
+    // Spear: long and narrow. Outreaches every other melee hit, but misses anything off its lane.
+    static let spearPoke   = Hit(start: 0.06, duration: 0.09, reach: 20...185, depth: 20, damage: 7, knockback: 160, stun: 0.25)
+    static let spearThrust = Hit(start: 0.12, duration: 0.12, reach: 40...235, depth: 22, damage: 14, knockback: 380, stun: 0.4)
+    // Special: hits everything within ~one screen either side, every lane. Giants only rock back, so it hits them 4x harder instead.
+    static let rageShockwave = Hit(start: 0.19, duration: 0.12, reach: -650...650, depth: 170, heightTolerance: 400, damage: 28, knockback: 800, launch: 650, stun: 0.9, vsHeavy: 4)
     static let dashJab    = Hit(start: 0.04, duration: 0.14, reach: 0...150, damage: 8, knockback: 320, stun: 0.3)
     static let dashHook   = Hit(start: 0.08, duration: 0.18, reach: 0...160, damage: 16, knockback: 420, stun: 0.45, disarm: true)   // <500: staggers, doesn't floor
     static let uppercut   = Hit(start: 0.07, duration: 0.14, reach: -10...150, heightTolerance: 300, damage: 14, knockback: 80, launch: 1202, stun: 0.4)   // 850 x sqrt(2): apex doubles
+    // Air strike: quick, short-range, forgiving about height so it connects with things above or below you
+    static let airStrike  = Hit(start: 0.03, duration: 0.14, reach: -10...125, depth: 38, heightTolerance: 220, damage: 8, knockback: 180, stun: 0.3)
     static let diveSlam   = Hit(start: 0, duration: 1.0, reach: 0...150, depth: 40, heightTolerance: 140, damage: 10, knockback: 250, launch: -900, stun: 0.4)
     static let shockwave  = Hit(start: 0, duration: 0.12, reach: -170...170, depth: 60, heightTolerance: 80, damage: 14, knockback: 650, launch: 450, stun: 0.5)
+    // Hammer: slow to land (the wind-up is the warning), wide, but only low: a jump clears it, a roll's invulnerability beats it.
+    static let hammer     = Hit(start: 0.42, duration: 0.12, reach: 20...245, depth: 80, heightTolerance: 45, damage: 18, knockback: 560, stun: 0.6, shatters: true)
+    static let forgeSmash = Hit(start: 0, duration: 0, reach: 0...0, damage: 18, knockback: 620, launch: 320, stun: 0.8)
+    static let lava       = Hit(start: 0, duration: 0, reach: 0...0, damage: 9, stun: 0.45, environmental: true)
+    static let giantSlam  = Hit(start: 0, duration: 0, reach: 0...0, damage: 20, knockback: 820, launch: 380, stun: 0.8)
     static let smash      = Hit(start: 0.25, duration: 0.12, reach: 0...175, depth: 50, heightTolerance: 120, damage: 18, knockback: 700, launch: 350, stun: 0.5)
+}
+
+/// How a launched projectile travels. Arrows fly level; a rock arcs (vz = initial vertical speed, gravity pulls it down and it lands).
+enum ProjectileKind { case arrow, rock, bolt, ice, bomb }
+struct Shot {
+    var kind = ProjectileKind.arrow
+    var speed: CGFloat = 1100
+    var vz: CGFloat = 0
+    var gravity: CGFloat = 0
 }
 
 /// Pure data. To add a move, add one row to `MoveTable.rows`.
@@ -85,7 +117,10 @@ struct Move {
     var slam = false                 // dive to the ground
     var plant = false                // kills horizontal run momentum when it starts (the move supplies its own travel)
     var brake: TimeInterval = 0      // > 0 forces a hard stop for this long (skid)
+    var airHold: CGFloat = 0             // in the air: restart the hang at the current height for this long (an air strike keeps you up)
+    var invulnerable: TimeInterval = 0   // can't be hit for this long from the start of the move (dodges)
     var power: CGFloat = 1           // relative damage / knockback (used once hit detection exists)
+    var buffersInput = true          // false: a too-early input during this move is dropped, not held (tight-timing chains)
     var cancelAt = ComboTuning.cancelAt
     var window = ComboTuning.window
     var hits: [Hit] = []
@@ -93,9 +128,21 @@ struct Move {
     var grab: TimeInterval = -1      // >= 0: picks up whatever is at the fighter's feet this long into the move
     var fire: TimeInterval = -1      // >= 0: launches `projectile` this long into the move (uses one ammo)
     var projectile: Hit? = nil
+    var shot = Shot()                // flight path of `projectile`
     var emphasis = Emphasis.none     // camera zoom / slow-mo when the hero performs it (bigger moment, bigger effect)
 
     func hitting(_ h: Hit...) -> Move { var m = self; m.hits = h; return m }
+
+    /// The same move run `k` times faster: every time value shrinks, distances and damage stay the same.
+    func sped(by k: CGFloat) -> Move {
+        var m = self
+        let t = TimeInterval(1 / k)
+        m.lock *= t; m.advanceStart *= t; m.advanceDuration *= t; m.brake *= t; m.cancelAt *= t
+        if m.grab >= 0 { m.grab *= t }
+        if m.fire >= 0 { m.fire *= t }
+        m.hits = m.hits.map { var h = $0; h.start *= t; h.duration *= t; return h }
+        return m
+    }
     var armed: Move { var m = self; m.usesWeapon = true; return m }
     func emphasized(_ e: Emphasis) -> Move { var m = self; m.emphasis = e; return m }
 }
@@ -107,9 +154,10 @@ enum MoveTable {
     // Animations marked (placeholder) reuse existing poses until dedicated ones exist.
     private static let rows: [(MoveContext, Trigger, Move)] = [
         // Standing / slow walk
-        (.grounded, .tap,     Move(name: "punch",         animation: .jab,  lock: 0.28).hitting(.jab)),
+        (.grounded, .tap,     Move(name: "punch",         animation: .jab,  lock: 0.2).hitting(.jab)),
         (.grounded, .up,      Move(name: "small jump",    jumpHeight: 170)),
-        (.grounded, .down,    Move(name: "pick up",       animation: .pickup, lock: 0.45, grab: 0.2)),
+        (.grounded, .down,    Move(name: "pick up",       animation: .pickup, lock: 0.28, grab: 0.1)),
+        (.grounded, .back,    Move(name: "dodge roll",   animation: .roll, lock: 0.38, advance: -250, advanceDuration: 0.3, plant: true, invulnerable: 0.26, buffersInput: false, cancelAt: 0.26, window: 0.08)),
         (.grounded, .forward, Move(name: "heavy attack",  animation: .hook, lock: 0.5, lunge: 140).hitting(.hook).armed.emphasized(.light)),
 
         // Fully running
@@ -119,11 +167,14 @@ enum MoveTable {
         (.running,  .back,    Move(name: "skid stop",     animation: .land, lock: 0.3, brake: 0.3)), // (placeholder) land pose
 
         // In the air
+        (.airborne, .tap,     Move(name: "air strike",    animation: .airStrike, airHold: 0.3).hitting(.airStrike).armed),
         (.airborne, .down,    Move(name: "air slam",      animation: .slam, slam: true, power: 1.0).hitting(.diveSlam).armed.emphasized(.medium)),
     ]
 
     // Combo links: after `from` (by move name), `trigger` gives the next move. Input-driven: no hit required.
     private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760).hitting(.dashHook).armed.emphasized(.medium)
+    /// The roll counter: same hit, but it covers about the 250 the roll gave up (lunge speed 950 coasts ~245), so you re-engage where you were.
+    private static let counterDash = Move(name: "counter dash",  animation: .hook, lock: 0.5, lunge: 950).hitting(.dashHook).armed.emphasized(.medium)
 
     /// Running ground slam. Same shockwave and knockback as the air slam, a bit less powerful.
     static let groundSmash = Move(name: "ground smash", animation: .smash, lock: 0.62, advance: 150, advanceStart: 0, advanceDuration: 0.27, brake: 0.4, power: 0.7).hitting(.smash).armed.emphasized(.heavy)
@@ -133,14 +184,21 @@ enum MoveTable {
     /// Landing from an air slam: a short recovery during which the combo chain is open from the first frame.
     static let slamLanding = Move(name: "slam landing", animation: .slamLand, lock: 0.3, cancelAt: 0).hitting(.shockwave).armed.emphasized(.massive)
 
+    /// Third punch in a string: a big, committed overhand right.
+    private static let haymaker = Move(name: "haymaker", animation: .haymaker, lock: 0.55, lunge: 120, plant: true, brake: 0.2).hitting(.haymaker).emphasized(.medium)
+
     private static let chains: [(from: String, trigger: Trigger, move: Move)] = [
-        ("punch",      .tap,  Move(name: "punch 2",      animation: .jab,  lock: 0.28, lunge: 80).hitting(.jab)),
+        ("punch",      .tap,  Move(name: "punch 2",      animation: .jab,  lock: 0.2, lunge: 80).hitting(.jab)),
+        ("punch 2",      .tap,  haymaker),                       // mash tap: jab, jab, big finisher
         ("punch 2",      .up,   uppercut),                       // standing-combo entry
         ("heavy attack", .up,   uppercut),                       // any strong attack ...
         ("power dash",   .up,   uppercut),                       // ... including after a full run
+        ("counter dash", .up,   uppercut),                       // the roll counter keeps the same follow-ups as the power dash
+        ("dodge roll",   .forward, counterDash),                   // counter: forward swipe late in the roll, ~0.2s window
         ("slam landing", .forward, powerDash),                   // juggle: slam, then straight back into a dash
         ("slam landing", .up,   uppercut),                       // ... or launch them
         ("power dash",  .down, groundSmash),
+        ("counter dash", .down, groundSmash),
         ("dash attack", .down, groundSmash),
     ]
     private static let chainTable: [String: Move] = Dictionary(
@@ -156,4 +214,47 @@ enum MoveTable {
     static func move(_ context: MoveContext, _ trigger: Trigger) -> Move? {
         table[MoveKey(context: context, trigger: trigger)]
     }
+}
+
+
+// MARK: - Specials
+
+/// A hero's signature move. Data only: hold to charge (invulnerable, rooted), then `release` plays.
+/// Another hero gets a different special by setting `Fighter.special`; nothing else changes.
+struct Special {
+    var name: String
+    var chargeTime: TimeInterval = 1.0               // hold this long to unleash it; letting go earlier cancels (meter kept)
+    var chargeAnimation: CharacterAnimation          // looping power-up pose while holding
+    var release: Move                                // the move that plays when the charge completes
+    var recoveryInvulnerability: TimeInterval = 0.2  // extra invulnerable time after the move ends
+    var gainPerDamageDealt: CGFloat = 0.0065         // meter (0...1) gained per point of damage you deal
+    var gainPerDamageTaken: CGFloat = 0.0032         // ... and per point you take (comeback)
+
+    var impactDelay: TimeInterval { release.hits.first?.start ?? 0 }
+    var radius: CGFloat { release.hits.map { max(abs($0.reach.lowerBound), abs($0.reach.upperBound)) }.max() ?? 0 }
+}
+
+enum Specials {
+    /// Roar, leap-less ground pound, screen-wide shockwave that launches everyone it hits.
+    static let rageSlam = Special(
+        name: "rage slam", chargeAnimation: .powerUp,
+        release: Move(name: "rage slam", animation: .rageSlam, lock: 0.75, plant: true).hitting(.rageShockwave).emphasized(.special))
+
+    /// Slow to charge: a lunging shoulder-charge that plows through everything in front and launches it.
+    static let bullRush = Special(
+        name: "bull rush", chargeTime: 1.2, chargeAnimation: .powerUp,
+        release: Move(name: "bull rush", animation: .bullRush, lock: 1.0, lunge: 1650)
+            .hitting(Hit(start: 0.05, duration: 0.85, reach: -20...240, depth: 100, heightTolerance: 140, damage: 110, knockback: 520, launch: 300, stun: 1.0, vsHeavy: 1.5))
+            .emphasized(.special),
+        gainPerDamageDealt: 0.0056)
+
+    /// Quick to charge: a spin that hits everything around you three times, pinning them in place, the last blow launching.
+    static let whirlwind = Special(
+        name: "whirlwind", chargeTime: 0.6, chargeAnimation: .powerUp,
+        release: Move(name: "whirlwind", animation: .whirlwind, lock: 0.75, plant: true)
+            .hitting(Hit(start: 0.08, duration: 0.1, reach: -190...190, depth: 120, heightTolerance: 220, damage: 9, knockback: 40, stun: 0.5, vsHeavy: 2),
+                     Hit(start: 0.26, duration: 0.1, reach: -190...190, depth: 120, heightTolerance: 220, damage: 9, knockback: 40, stun: 0.5, vsHeavy: 2),
+                     Hit(start: 0.44, duration: 0.12, reach: -200...200, depth: 120, heightTolerance: 220, damage: 13, knockback: 600, launch: 520, stun: 0.8, vsHeavy: 3))
+            .emphasized(.special),
+        gainPerDamageDealt: 0.0088)
 }

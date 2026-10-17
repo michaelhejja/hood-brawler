@@ -11,6 +11,7 @@ enum InputTuning {
     static let swipeDistance: CGFloat = 25          // pt before a right-side drag counts as a swipe
     static let tapMaxDistance: CGFloat = 12
     static let tapMaxDuration: TimeInterval = 0.3
+    static let holdStart: TimeInterval = 0.32       // a right-side press held still this long counts as a hold
     static let deadZone: CGFloat = 8                // left-side drag ignored below this
     static let fullDrag: CGFloat = 80               // left-side drag distance for full intensity
     static let keyboardWalk: CGFloat = 0.4
@@ -27,6 +28,7 @@ struct DebugTouch {
 /// Emits abstract inputs (movement vector + gestures) so touch, keyboard and scripted backends are interchangeable.
 final class InputController {
     var onGesture: ((Gesture) -> Void)?
+    var onHold: ((Bool) -> Void)?          // true when a hold begins, false when it ends or turns into a swipe
 
     private struct Track {
         let isLeft: Bool
@@ -35,6 +37,8 @@ final class InputController {
         let startTime: TimeInterval
         var lastTime: TimeInterval
         var fired = false
+        var heldFor: TimeInterval = 0
+        var holding = false
     }
 
     private var tracks: [ObjectIdentifier: Track] = [:]
@@ -80,6 +84,12 @@ final class InputController {
 
     func update(dt: TimeInterval) {
         touchDragSpeed *= CGFloat(exp(-8 * dt))   // touchesMoved doesn't fire when the thumb rests
+        for (id, var tr) in tracks where !tr.isLeft && !tr.fired && !tr.holding {
+            guard hypot(tr.current.x - tr.origin.x, tr.current.y - tr.origin.y) <= InputTuning.tapMaxDistance else { continue }
+            tr.heldFor += dt
+            if tr.heldFor >= InputTuning.holdStart { tr.holding = true; onHold?(true) }
+            tracks[id] = tr
+        }
     }
 
     // MARK: Touch backend
@@ -113,6 +123,7 @@ final class InputController {
                 let dx = p.x - tr.origin.x, dy = p.y - tr.origin.y
                 if hypot(dx, dy) >= InputTuning.swipeDistance {
                     tr.fired = true          // fires immediately, not on release
+                    if tr.holding { tr.holding = false; onHold?(false) }
                     let dir: SwipeDirection = abs(dx) > abs(dy) ? (dx > 0 ? .right : .left) : (dy < 0 ? .up : .down)
                     onGesture?(.swipe(dir))
                 }
@@ -127,6 +138,7 @@ final class InputController {
         for t in touches {
             let id = ObjectIdentifier(t)
             guard let tr = tracks.removeValue(forKey: id) else { continue }
+            if tr.holding { onHold?(false) }
             if !tr.isLeft, !tr.fired {
                 let p = t.location(in: view)
                 if hypot(p.x - tr.origin.x, p.y - tr.origin.y) <= InputTuning.tapMaxDistance,
@@ -138,7 +150,14 @@ final class InputController {
         if leftTrack == nil { touchDragSpeed = 0 }
     }
 
+    /// Drop every touch and key in flight (used on pause, so nothing stays held while the game is frozen).
+    func cancelAll() {
+        if tracks.values.contains(where: { $0.holding }) { onHold?(false) }
+        tracks.removeAll(); keys.removeAll(); keyRun = false; touchDragSpeed = 0
+    }
+
     func cancelled(_ touches: Set<UITouch>) {
+        for t in touches where tracks[ObjectIdentifier(t)]?.holding == true { onHold?(false) }
         touches.forEach { tracks.removeValue(forKey: ObjectIdentifier($0)) }
         if leftTrack == nil { touchDragSpeed = 0 }
     }

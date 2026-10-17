@@ -33,6 +33,15 @@ final class WalkBrain: Brain {
     }
 }
 
+/// Test brain: paces left and right at full tilt (to measure how fast a chilled hero really moves).
+final class PaceBrain: Brain {
+    private var t: TimeInterval = 0
+    func think(me: Fighter, foes: [Fighter], now: TimeInterval, dt: TimeInterval) -> MoveIntent {
+        t += dt
+        return MoveIntent(direction: CGVector(dx: Int(t / 1.3) % 2 == 0 ? 1 : -1, dy: 0), intensity: 1)
+    }
+}
+
 // MARK: - Crowd
 
 /// Stops a group of enemies from all piling onto the player at once: only a few hold an "attack token" at a time and
@@ -90,7 +99,7 @@ final class EnemyBrain: Brain {
     let director: CrowdDirector
 
     private typealias Step = (gesture: GestureKind, wait: TimeInterval)
-    private enum GestureKind { case tap, forward, up, down }
+    private enum GestureKind { case tap, forward, back, up, down }
     private enum State {
         case approach                                   // no token yet: hold position in the ring
         case engage                                     // has a token: walk to striking distance
@@ -101,6 +110,7 @@ final class EnemyBrain: Brain {
         case backOff(until: TimeInterval)
     }
     private var state = State.approach
+    private var nextRaise: TimeInterval = 0           // shield: don't re-raise before this (after a stagger)
 
     init(traits: EnemyTraits = EnemyTraits(), director: CrowdDirector) {
         self.traits = traits
@@ -111,6 +121,7 @@ final class EnemyBrain: Brain {
         guard let target = foes.first(where: { !$0.dead }) else { director.release(me); return MoveIntent() }
         if me.incapacitated {                          // knocked about: drop the plan, recover before acting again
             director.release(me)
+            nextRaise = now + 1.0
             if case .recover = state {} else { state = .recover(until: now + .random(in: 0.4...0.9)) }
             return MoveIntent()
         }
@@ -120,6 +131,13 @@ final class EnemyBrain: Brain {
         let dy = target.rig.position.y - me.rig.position.y
         let toward = CGVector(dx: dx / max(hypot(dx, dy), 1), dy: dy / max(hypot(dx, dy), 1))
         let inReach = abs(dx) < traits.attackRange * 0.85 && abs(dy) < traits.laneTolerance
+
+        if me.hasShield {                              // shield up while closing in or waiting to strike; down to attack, charge, rest or back off
+            var up = false
+            switch state { case .approach, .engage, .ready: up = true; default: break }
+            if up { if !me.guarding, now >= nextRaise { me.face(towardX: target.rig.position.x); send(.back, me) } }
+            else if me.guarding { me.dropGuard() }
+        }
 
         switch state {
         case .approach:
@@ -148,7 +166,16 @@ final class EnemyBrain: Brain {
             return MoveIntent(direction: toward, intensity: 1)
 
         case .ready(let until):
-            if now >= until { state = .attacking(steps: pickAttack(), nextAt: now) }
+            if now >= until {
+                if me.guarding, me.guardEnergy >= 12 {                 // absorbed enough: shield bash instead of a normal attack
+                    me.face(towardX: target.rig.position.x)
+                    send(.forward, me)
+                    state = .recover(until: now + .random(in: traits.cooldown))
+                    return MoveIntent()
+                }
+                me.dropGuard()
+                state = .attacking(steps: pickAttack(me), nextAt: now)
+            }
             return MoveIntent()
 
         case .attacking(var steps, let nextAt):
@@ -247,10 +274,12 @@ final class EnemyBrain: Brain {
         let dx = p.x - me.rig.position.x, dy = p.y - me.rig.position.y
         let d = hypot(dx, dy)
         if d < 16 { me.face(towardX: target.rig.position.x); return MoveIntent() }
-        return MoveIntent(direction: CGVector(dx: dx / d, dy: dy / d), intensity: traits.approachIntensity)
+        return MoveIntent(direction: CGVector(dx: dx / d, dy: dy / d), intensity: traits.approachIntensity,
+                          facing: me.guarding ? target.rig.position.x >= me.rig.position.x : nil)     // a raised shield keeps facing you
     }
 
-    private func pickAttack() -> [Step] {
+    private func pickAttack(_ me: Fighter) -> [Step] {
+        if me.weapon?.name == "hammer" { return [(.tap, 0.9)] }          // one slow slam
         if Double.random(in: 0...1) < traits.comboChance {
             return [[(.tap, 0.22), (.tap, 0.5)],                                  // jab, jab
                     [(.forward, 0.3), (.up, 0.9)],                                // hook, uppercut
@@ -265,6 +294,44 @@ final class EnemyBrain: Brain {
         case .up:      me.handle(.swipe(.up))
         case .down:    me.handle(.swipe(.down))
         case .forward: me.handle(.swipe(me.rig.facingRight ? .right : .left))
+        case .back:    me.handle(.swipe(me.rig.facingRight ? .left : .right))
         }
+    }
+}
+
+
+/// A goblin carrying a bomb: lines up in your lane at lobbing distance and throws it. After that it fights with its blade as usual.
+/// (Kill it before it throws and it drops the bomb for you.)
+final class BomberBrain: Brain {
+    private let inner: Brain
+    private let fallback: Weapon?
+    private var throwAt: TimeInterval = 0
+    private var threw = false
+
+    init(inner: Brain, fallback: Weapon?) { self.inner = inner; self.fallback = fallback }
+
+    func think(me: Fighter, foes: [Fighter], now: TimeInterval, dt: TimeInterval) -> MoveIntent {
+        if me.weapon == nil, threw { threw = false; me.equip(fallback) }              // the bomb has gone: back to the blade
+        guard !me.dead, !me.isHurt, me.weapon?.name == "bomb", let hero = foes.first(where: { !$0.dead }) else {
+            return inner.think(me: me, foes: foes, now: now, dt: dt)
+        }
+        if throwAt == 0 { throwAt = now + .random(in: 1.4...2.6) }
+        let dx = hero.rig.position.x - me.rig.position.x, dy = hero.rig.position.y - me.rig.position.y
+        let faceRight = dx >= 0, dist = abs(dx)
+        if now >= throwAt, dist >= 230, dist <= 430, abs(dy) < 40 {
+            me.face(towardX: hero.rig.position.x)
+            me.handle(.tap)
+            threw = true
+            NSLog("BOMB goblin throws at dist %.0f dy %.0f", dist, dy)
+            return MoveIntent(facing: faceRight)
+        }
+        var dir = CGVector.zero
+        var intensity: CGFloat = 0
+        if dist < 230 { dir.dx = faceRight ? -1 : 1; intensity = 0.75 }              // back off to lobbing distance
+        else if dist > 430 { dir.dx = faceRight ? 1 : -1; intensity = 0.6 }
+        if abs(dy) >= 40 { dir.dy = dy > 0 ? 1 : -1; intensity = max(intensity, 0.5) }   // the bomb lands in the thrower's lane
+        let len = hypot(dir.dx, dir.dy)
+        if len > 0 { dir = CGVector(dx: dir.dx / len, dy: dir.dy / len) }
+        return MoveIntent(direction: dir, intensity: len > 0 ? intensity : 0, facing: faceRight)
     }
 }
