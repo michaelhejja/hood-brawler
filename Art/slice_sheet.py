@@ -3,7 +3,8 @@ Usage: python3 slice_sheet.py my_character.png cloak   ->  ../Brawler/Sprites/cl
 import json, os, sys
 from PIL import Image
 sheet_path, prefix = sys.argv[1], sys.argv[2]
-spec = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "template_spec.json")))
+here = os.path.dirname(os.path.abspath(__file__))
+spec = json.load(open(sys.argv[3] if len(sys.argv) > 3 else os.path.join(here, "template_spec.json")))      # optional 3rd arg: another spec (e.g. templates/demon_spec.json)
 im = Image.open(sheet_path).convert("RGBA")
 assert im.size == (2048, 1536), f"expected 2048x1536, got {im.size}"
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Brawler", "Sprites"); os.makedirs(out, exist_ok=True)

@@ -185,6 +185,12 @@ enum Weapons {
         return m
     }()
 
+    /// A demon's innate fire bolt: the ice bolt's timing, plain damage, no weapon needed.
+    static let fireBreathMoves: [MoveKey: Move] = {
+        let bolt = Move(name: "fire bolt", animation: .shoot, lock: 0.55, fire: 0.3, projectile: .fireBolt, shot: Shot(kind: .fire, speed: 520))
+        return [MoveKey(context: .grounded, trigger: .back): bolt, MoveKey(context: .running, trigger: .back): bolt]
+    }()
+
     static func iceStaffArt() -> SKNode {
         let pole = styled(SKShapeNode(rect: CGRect(x: -2.5, y: -30, width: 5, height: 110), cornerRadius: 2), SKColor(red: 0.55, green: 0.62, blue: 0.72, alpha: 1), line: 3)
         let p = CGMutablePath()
@@ -210,6 +216,21 @@ enum Weapons {
             core.addChild(t)
         }
         core.run(.repeatForever(.sequence([.scale(to: 1.12, duration: 0.12), .scale(to: 0.92, duration: 0.12)])))
+        return core
+    }
+
+    static func fireBoltArt() -> SKNode {
+        let core = styled(SKShapeNode(circleOfRadius: 11), SKColor(red: 1, green: 0.62, blue: 0.15, alpha: 1), line: 3)
+        core.glowWidth = 10
+        let hot = styled(SKShapeNode(circleOfRadius: 5), SKColor(red: 1, green: 0.95, blue: 0.6, alpha: 1), line: 0)
+        core.addChild(hot)
+        for (i, r) in [CGFloat(9), 7, 4].enumerated() {
+            let t = SKShapeNode(circleOfRadius: r)
+            t.fillColor = SKColor(red: 1, green: 0.35, blue: 0.1, alpha: 0.55 - CGFloat(i) * 0.14); t.strokeColor = .clear
+            t.position = CGPoint(x: -CGFloat(i + 1) * 15 - 6, y: 0); t.zPosition = -1
+            core.addChild(t)
+        }
+        core.run(.repeatForever(.sequence([.scale(to: 1.15, duration: 0.1), .scale(to: 0.88, duration: 0.1)])))
         return core
     }
 
@@ -551,11 +572,12 @@ final class Projectile: SKNode {
         case .bomb:  art = Weapons.bombArt()
         case .bolt:  art = Weapons.boltArt()
         case .ice:   art = Weapons.iceBoltArt()
+        case .fire:  art = Weapons.fireBoltArt()
         case .arrow: art = Weapons.arrowArt()
         }
         super.init()
         addChild(art)
-        if shot.kind == .arrow || shot.kind == .ice { xScale = dir }
+        if shot.kind == .arrow || shot.kind == .ice || shot.kind == .fire { xScale = dir }
         position = CGPoint(x: x, y: lane + height + lift)
         zPosition = 305 - lane
     }

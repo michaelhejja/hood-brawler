@@ -97,7 +97,7 @@ extension Hit {
 }
 
 /// How a launched projectile travels. Arrows fly level; a rock arcs (vz = initial vertical speed, gravity pulls it down and it lands).
-enum ProjectileKind { case arrow, rock, bolt, ice, bomb }
+enum ProjectileKind { case arrow, rock, bolt, ice, bomb, fire }
 struct Shot {
     var kind = ProjectileKind.arrow
     var speed: CGFloat = 1100

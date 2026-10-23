@@ -31,6 +31,7 @@ struct FighterStats {
     var attackSpeed: CGFloat = 1        // grounded attacks run this much faster (Frenzy buff); jumps and air moves are unaffected
     var size: CGFloat = 1               // body scale for combat: multiplies hit reach and how far its own body reaches into hits
     var ignoresPickups = false          // never grabs anything, weapons included (too big to use them)
+    var innateMoves: [MoveKey: Move] = [:]   // moves it has without a weapon (a demon's fire); a held weapon still overrides
     var flies = false                   // sets its own height (a bat): hovers out of reach of ground attacks, sinks when hurt
     var unlaunchable = false            // never leaves the ground: launchers and big hits only rock it back
 
@@ -47,6 +48,15 @@ struct FighterStats {
         var s = FighterStats()
         s.runSpeed = 380; s.baseAccel = 1000; s.maxHealth = 260; s.damageScale = 1
         s.size = 2; s.flies = true; s.unlaunchable = true; s.ignoresPickups = true
+        return s
+    }
+
+    /// The Demon: a giant's bulk, a bat's wings and a wizard's blink. Hits don't knock it back or drop it from the air.
+    static var demon: FighterStats {
+        var s = FighterStats()
+        s.runSpeed = 250; s.baseAccel = 800; s.maxHealth = 520; s.damageScale = 1.4
+        s.size = 1.6; s.flies = true; s.unlaunchable = true; s.ignoresPickups = true
+        s.innateMoves = Weapons.fireBreathMoves
         return s
     }
 
@@ -425,7 +435,7 @@ final class Fighter {
         }
         if trigger == .up, !airborne, doorCheck?() == true { lastGesture = "up -> enter door"; return }
         // 3. Normal context lookup: the held weapon may override this gesture (e.g. a bow's back swipe shoots)
-        var override = weapon?.moves[MoveKey(context: ctx, trigger: trigger)] ?? (stats.flies ? Fighter.flierMoves[MoveKey(context: ctx, trigger: trigger)] : nil)
+        var override = weapon?.moves[MoveKey(context: ctx, trigger: trigger)] ?? stats.innateMoves[MoveKey(context: ctx, trigger: trigger)] ?? (stats.flies ? Fighter.flierMoves[MoveKey(context: ctx, trigger: trigger)] : nil)
         if let o = override, o.projectile != nil, let a = ammo, a <= 0, MoveTable.move(ctx, trigger) != nil { override = nil }   // empty bow: the gesture goes back to its default (the roll)
         guard let move = override ?? MoveTable.move(ctx, trigger) else {
             lastGesture = "\(trigger.rawValue) [\(ctx.rawValue)] -> (nothing)"

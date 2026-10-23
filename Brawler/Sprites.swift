@@ -4,7 +4,7 @@ import SpriteKit
 /// on the slicing template (Art/template_spec.json). Any part that is missing falls back to the skin's code-drawn shape,
 /// so parts can be swapped in one at a time and mixed between characters.
 enum SpriteParts {
-    enum Part: String, CaseIterable { case head, torso, armWeapon = "arm_weapon", armOff = "arm_off", legBack = "leg_back", legFront = "leg_front" }
+    enum Part: String, CaseIterable { case head, torso, armWeapon = "arm_weapon", armOff = "arm_off", legBack = "leg_back", legFront = "leg_front", wingBack = "wing_back", wingFront = "wing_front" }
 
     /// Template pixels -> game points.
     static let pointsPerPixel: CGFloat = 0.128
@@ -17,6 +17,8 @@ enum SpriteParts {
         .armOff:    (CGSize(width: 224, height: 396), CGPoint(x: 75, y: 58)),
         .legBack:   (CGSize(width: 256, height: 295), CGPoint(x: 128, y: 30)),
         .legFront:  (CGSize(width: 256, height: 295), CGPoint(x: 128, y: 30)),
+        .wingBack:  (CGSize(width: 640, height: 760), CGPoint(x: 560, y: 150)),       // demon only: see Art/templates/demon_spec.json
+        .wingFront: (CGSize(width: 640, height: 760), CGPoint(x: 560, y: 150)),
     ]
 
     private static var cache: [String: SKTexture?] = [:]

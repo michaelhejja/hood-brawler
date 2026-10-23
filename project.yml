@@ -18,7 +18,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 6JR5G4JR45
         MARKETING_VERSION: "0.2"
-        CURRENT_PROJECT_VERSION: "3"                       # raise this for every TestFlight upload
+        CURRENT_PROJECT_VERSION: "4"                       # raise this for every TestFlight upload
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO    # no custom encryption: skips the export-compliance question
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

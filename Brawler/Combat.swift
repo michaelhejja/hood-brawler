@@ -188,6 +188,7 @@ extension Hit {
     static let batBite    = Hit(start: 0.1, duration: 0.14, reach: 0...85, depth: 34, heightTolerance: 70, damage: 7, knockback: 220, stun: 0.3)
     static let necroBolt  = Hit(start: 0, duration: 0, reach: 0...0, depth: 30, heightTolerance: 70, damage: 11, knockback: 320, stun: 0.45)
     /// The frost wizards' bolt: lighter than the necromancer's, but it chills (half speed for a moment).
+    static let fireBolt   = Hit(start: 0, duration: 0, reach: 0...0, depth: 30, heightTolerance: 70, damage: 10, knockback: 200, stun: 0.35)
     static let iceBolt    = Hit(start: 0, duration: 0, reach: 0...0, depth: 30, heightTolerance: 70, damage: 8, knockback: 200, stun: 0.35, chills: 1.7)
     static let eruption   = Hit(start: 0, duration: 0, reach: 0...0, damage: 16, knockback: 520, launch: 420, stun: 0.8)
     static let crumble    = Hit(start: 0, duration: 0, reach: 0...0, damage: 9999, knockback: 0, stun: 0.3)
@@ -968,6 +969,142 @@ final class BatKingBrain: Brain {
                 onThud?(me.rig.position)
                 phase = .land(now + (enraged ? 1.8 : 2.3))
             }
+            return MoveIntent(facing: faceRight)
+        }
+    }
+}
+
+
+// MARK: - Demon
+
+/// Mini-boss. On the ground it trades blows like a giant and throws fire without a weapon. Pressed, it blinks away like a wizard.
+/// Every so often it rises like the Bat King, rains fire on marked spots, then crashes down and is stunned: that's the opening.
+final class DemonBrain: Brain {
+    let inner: EnemyBrain
+    private enum Phase { case ground, fire(TimeInterval), fadeOut(TimeInterval), fadeIn(TimeInterval), rise(TimeInterval), rain(TimeInterval, Int), slam(TimeInterval), stunned(TimeInterval) }
+    private var phase = Phase.ground
+    private var started = false
+    private var enraged = false
+    private var nextFire: TimeInterval = 0
+    private var nextBlink: TimeInterval = 0
+    private var nextAir: TimeInterval = 0
+    private var pressedSince: TimeInterval?
+    private let hoverY: CGFloat = 190
+    private(set) var debugPhase = "ground"
+
+    var arena: ClosedRange<CGFloat> = 0...1334
+    var onPoof: ((CGPoint) -> Void)?
+    var onRain: (([CGPoint]) -> Void)?
+    var onSlam: ((CGPoint) -> Void)?
+    var onHeroHit: ((Fighter) -> Void)?
+    var onEnrage: (() -> Void)?
+
+    init(inner: EnemyBrain) { self.inner = inner }
+
+    func think(me: Fighter, foes: [Fighter], now: TimeInterval, dt: TimeInterval) -> MoveIntent {
+        if me.dead { debugPhase = "dead"; return MoveIntent() }
+        guard let hero = foes.first(where: { !$0.dead }) else { return inner.think(me: me, foes: foes, now: now, dt: dt) }
+        if !started { started = true; nextFire = now + 2; nextBlink = now + 4; nextAir = now + 9 }
+        let mx = me.rig.position.x, hx = hero.rig.position.x, hy = hero.rig.position.y
+        let dx = hx - mx, dy = hy - me.rig.position.y, dist = abs(dx), faceRight = dx >= 0
+        if !enraged, me.healthFraction < 0.5 { enraged = true; onEnrage?() }
+
+        switch phase {
+        case .ground:
+            debugPhase = "ground"
+            me.damageTaken = 1; me.flyHeight = 0; me.flyRate = 14
+            guard !me.isHurt else { return inner.think(me: me, foes: foes, now: now, dt: dt) }
+            if now >= nextAir {
+                inner.director.release(me)
+                nextAir = now + (enraged ? 8 : 12)
+                phase = .rise(now + 0.9)
+                return MoveIntent(facing: faceRight)
+            }
+            if dist < 230 { pressedSince = pressedSince ?? now } else { pressedSince = nil }
+            if now >= nextBlink, let p = pressedSince, now - p > 0.5 {
+                inner.director.release(me)
+                pressedSince = nil
+                nextBlink = now + (enraged ? 4 : 6)
+                me.setInvulnerable(for: 0.6)
+                me.rig.run(.fadeOut(withDuration: 0.15))
+                onPoof?(me.rig.position)
+                phase = .fadeOut(now + 0.22)
+                return MoveIntent()
+            }
+            if now >= nextFire, dist > 260, dist < 620 {
+                if abs(dy) < 26 {
+                    inner.director.release(me)
+                    me.face(towardX: hx)
+                    me.handle(.swipe(faceRight ? .left : .right))             // back swipe = fire bolt, from its innate moves
+                    nextFire = now + .random(in: enraged ? 1.8...3 : 2.8...4.2)
+                    phase = .fire(now + 0.7)
+                    return MoveIntent(facing: faceRight)
+                }
+                return MoveIntent(direction: CGVector(dx: 0, dy: dy > 0 ? 1 : -1), intensity: 0.6, facing: faceRight)       // line up the shot
+            }
+            return inner.think(me: me, foes: foes, now: now, dt: dt)
+
+        case .fire(let until):
+            debugPhase = "fire"
+            if now >= until { phase = .ground }
+            return MoveIntent(facing: faceRight)
+
+        case .fadeOut(let until):
+            debugPhase = "blink"
+            guard now >= until else { return MoveIntent() }
+            func target(_ s: CGFloat) -> CGFloat { min(max(hx + s * .random(in: 320...440), arena.lowerBound), arena.upperBound) }
+            var side: CGFloat = Bool.random() ? 1 : -1
+            var x = target(side)
+            if abs(x - hx) < 240 { side = -side; x = target(side) }
+            me.rig.position = CGPoint(x: x, y: .random(in: 60...170))
+            onPoof?(me.rig.position)
+            me.rig.run(.fadeIn(withDuration: 0.2))
+            me.face(towardX: hx)
+            phase = .fadeIn(now + 0.3)
+            return MoveIntent()
+
+        case .fadeIn(let until):
+            debugPhase = "blink"
+            if now >= until { nextFire = min(nextFire, now + 0.4); phase = .ground }      // lands and throws fire almost at once
+            return MoveIntent()
+
+        case .rise(let until):
+            debugPhase = "rise"
+            me.flyHeight = hoverY; me.flyRate = 6
+            if now >= until { phase = .rain(now + 0.4, enraged ? 4 : 3) }
+            return MoveIntent(facing: faceRight)
+
+        case .rain(let next, let left):
+            debugPhase = "rain"
+            me.flyHeight = hoverY + CGFloat(sin(now * 2.5)) * 14; me.flyRate = 6
+            if now >= next {
+                if left == 0 { phase = .slam(now + 1.0); return MoveIntent(facing: faceRight) }
+                func clampX(_ x: CGFloat) -> CGFloat { min(max(x, arena.lowerBound), arena.upperBound) }
+                var spots = [CGPoint(x: clampX(hx), y: hy)]                        // one on you, the rest around you
+                for _ in 0..<(enraged ? 2 : 1) { spots.append(CGPoint(x: clampX(hx + .random(in: -260...260)), y: .random(in: 60...170))) }
+                onRain?(spots)
+                phase = .rain(now + (enraged ? 1.2 : 1.5), left - 1)
+            }
+            return MoveIntent(direction: CGVector(dx: max(-1, min(1, dx / 200)), dy: 0), intensity: 0.4, facing: faceRight)
+
+        case .slam(let deadline):
+            debugPhase = "slam"
+            me.flyHeight = 0; me.flyRate = 16
+            if me.rig.height < 14 || now > deadline {
+                me.rig.height = 0
+                onSlam?(me.rig.position)
+                if abs(hx - me.rig.position.x) <= 150, abs(dy) <= 55, hero.rig.height < 80, hero.vulnerable {
+                    hero.receive(.giantSlam, power: 1, scale: 1, from: me, away: faceRight ? 1 : -1)
+                    onHeroHit?(hero)
+                }
+                phase = .stunned(now + (enraged ? 1.5 : 2.0))
+            }
+            return MoveIntent(facing: faceRight)
+
+        case .stunned(let until):
+            debugPhase = "stunned"
+            me.damageTaken = 1.7; me.flyHeight = 0; me.flyRate = 14
+            if now >= until { me.damageTaken = 1; nextFire = now + 1.5; phase = .ground }
             return MoveIntent(facing: faceRight)
         }
     }

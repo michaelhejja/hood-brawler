@@ -50,9 +50,12 @@ final class HumanoidRig: SKNode {
     private let torso: SKNode
     private let head = SKNode()     // pivot; the skin's head art hangs inside it
     private var sword: SKNode
+    private let wingBack: SKNode?
+    private let wingFront: SKNode?
+    private var hasWings: Bool { wingBack != nil || wingFront != nil }
 
     /// Distance above the ground (pt, unscaled). The scene's physics drives this.
-    var height: CGFloat = 0 { didSet { rig.position.y = height; updateShadow() } }
+    var height: CGFloat = 0 { didSet { rig.position.y = height; updateShadow(); if hasWings, (height > 8) != (oldValue > 8) { flapWings() } } }
 
     var flies = false                       // wings (the arms) flap together; set by the fighter before it first plays idle
 
@@ -72,6 +75,8 @@ final class HumanoidRig: SKNode {
         armOff = skin.makeArm(.off)
         armWeapon = skin.makeArm(.weapon)
         torso = skin.makeTorso()
+        wingBack = skin.makeWing(front: false)
+        wingFront = skin.makeWing(front: true)
         sword = skin.defaultWeapon?.make() ?? SKNode()
         super.init()
         build()
@@ -118,7 +123,13 @@ final class HumanoidRig: SKNode {
         armWeapon.addChild(sword)
 
         [legBack, legFront, armOff, torso, head, armWeapon].forEach(body.addChild)
+        for (wing, z) in [(wingBack, CGFloat(-4)), (wingFront, -0.5)] {
+            guard let wing else { continue }
+            wing.position = layout.wingJoint; wing.zPosition = z
+            body.addChild(wing)
+        }
         resetPose()
+        flapWings()
     }
 
     // MARK: Playback
@@ -245,6 +256,19 @@ final class HumanoidRig: SKNode {
     /// 0...1: how much energy the shield is holding (it glows).
     func setGuardCharge(_ k: CGFloat) { sword.childNode(withName: "glow")?.alpha = min(1, max(0, k)) * 0.85 }
 
+    /// Wings beat hard while it is off the ground and rest folded while it is on it. Runs on its own, so poses never stop it.
+    private func flapWings() {
+        for (wing, phase) in [(wingBack, 0.0), (wingFront, 0.04)] {
+            guard let wing else { continue }
+            wing.removeAction(forKey: "flap")
+            let up = height > 8
+            let a: CGFloat = up ? -0.55 : 0.2, b: CGFloat = up ? 0.35 : 0.3, d = up ? 0.16 : 0.9
+            let up1 = SKAction.rotate(toAngle: a, duration: d); up1.timingMode = .easeInEaseOut
+            let dn1 = SKAction.rotate(toAngle: b, duration: d); dn1.timingMode = .easeInEaseOut
+            wing.run(.sequence([.wait(forDuration: phase), .repeatForever(.sequence([up1, dn1]))]), withKey: "flap")
+        }
+    }
+
     private func flap(_ p: Double, lean: CGFloat) {
         body.zRotation = lean
         body.run(.repeatForever(.sequence([pose(y: restY + 7, d: p), pose(y: restY - 1, d: p)])))
@@ -261,14 +285,14 @@ final class HumanoidRig: SKNode {
     }
 
     private func idle() {
-        if flies { flap(0.17, lean: 0); return }
+        if flies && !hasWings { flap(0.17, lean: 0); return }
         body.run(.repeatForever(.sequence([pose(y: restY + 2, d: 0.7), pose(y: restY, d: 0.7)])))
         track(armWeapon, [(armRest + 0.08, 0.7), (armRest - 0.05, 0.7)], loop: true)
         track(armOff, [(-0.05, 0.7), (0.06, 0.7)], loop: true)
     }
 
     private func run() {
-        if flies { flap(0.1, lean: -0.3); return }
+        if flies && !hasWings { flap(0.1, lean: -0.3); return }
         let c = 0.16
         body.zRotation = -0.18
         body.run(.repeatForever(.sequence([pose(y: restY + 5, d: c), pose(y: restY, d: c)])))

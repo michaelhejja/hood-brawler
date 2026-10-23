@@ -34,6 +34,7 @@ struct RigLayout {
     var weaponShoulder = CGPoint(x: -16, y: 44)
     var offShoulder = CGPoint(x: 17, y: 44)
     var headPivot = CGPoint(x: 2, y: 64)
+    var wingJoint = CGPoint(x: -12, y: 40)                    // where drawn wings join the back (only used by skins that have wings)
     var armLength: CGFloat = 28                               // weapon attaches this far down the weapon arm
     var armRest: CGFloat = 0.5
     var weaponRest: CGFloat = .pi + 2.0
@@ -51,6 +52,11 @@ protocol Skin {
     func makeLeg(_ side: LegSide) -> SKNode
     func makeArm(_ role: ArmRole) -> SKNode       // includes the hand
     var defaultWeapon: Weapon? { get }            // what this character starts with; nil = unarmed
+    func makeWing(front: Bool) -> SKNode?         // optional: hangs from layout.wingJoint, drawn behind the body
+}
+
+extension Skin {
+    func makeWing(front: Bool) -> SKNode? { nil }
 }
 
 // MARK: - Hero
@@ -645,6 +651,7 @@ struct SpriteSkin: Skin {
     var layout: RigLayout { drawn ? template.layout : base.layout }
     var defaultWeapon: Weapon? { base.defaultWeapon }
 
+    func makeWing(front: Bool) -> SKNode? { SpriteParts.node(prefix, front ? .wingFront : .wingBack) ?? base.makeWing(front: front) }
     func makeHead() -> SKNode { SpriteParts.node(prefix, .head) ?? base.makeHead() }
     func makeTorso() -> SKNode { SpriteParts.node(prefix, .torso) ?? base.makeTorso() }
     func makeLeg(_ side: LegSide) -> SKNode { SpriteParts.node(prefix, side == .back ? .legBack : .legFront) ?? base.makeLeg(side) }

@@ -12,7 +12,7 @@ struct LevelConfig {
 
 // MARK: - Level data
 
-enum EnemyKind { case skeleton, archer, giant, wyrm, necromancer, bat, batKing, goblin, doppel, forgeKing, wraith, wizard, archmage }
+enum EnemyKind { case skeleton, archer, giant, wyrm, necromancer, bat, batKing, goblin, doppel, forgeKing, wraith, wizard, archmage, demon }
 enum Theme { case forest, cave, mirror, forge, graveyard, snow }
 enum Side { case left, right }
 
@@ -105,7 +105,7 @@ struct LevelData {
 }
 
 enum Levels {
-    static let all: [LevelData] = [boneRoad, gravewood, boneMountain, mirrorHall, foundry, blackout, chillOut]
+    static let all: [LevelData] = [boneRoad, gravewood, boneMountain, mirrorHall, foundry, blackout, chillOut, ashlands]
 
     /// Scatters bushes along a stretch of a level, in repeatable positions, keeping clear of everything already placed.
     static func withBushes(_ props: [Prop], over range: ClosedRange<CGFloat>, every: CGFloat, seed: Int, withered: Bool = false) -> [Prop] {
@@ -452,6 +452,38 @@ enum Levels {
         encounters: [Encounter(triggerX: 250, waves: [Wave(spawns: [Spawn(.wizard, .right), Spawn(.wizard, .right, delay: 0.5), Spawn(.skeleton, .left, delay: 1.0)])], endsLevel: true)],
         theme: .snow)
 
+    /// Level 8: the Demon's introduction. Each of its three tricks shows up alone first: bulk, flight, then the blink.
+    /// Borrows the Foundry's look until the Ashlands get their own art (`theme: .forge`), and has no lava bands so the Demon's fire is the only thing to read.
+    static let ashlands = LevelData(
+        name: "The Ashlands", width: 3400, heroStart: 300,
+        props: [
+            .crate(600, 100, holding: .item(Items.food)),
+            .crate(1250, 70, holding: .weapon(Weapons.shield)), .crate(1400, 150, holding: .item(Items.food)),
+            .crate(2000, 100, holding: .item(Items.food)), .crate(2150, 60, holding: .weapon(Weapons.bow)),
+            .crate(2650, 90, holding: .item(Items.food)), .crate(2800, 150, holding: .item(Items.food)),
+        ],
+        placed: [Placed(x: 1000, lane: 105, tier: 0.6)],
+        says: [Say(x: 400, text: "The air is burning."), Say(x: 1700, text: "Something huge is breathing ahead."), Say(x: 2500, text: "Stay out of the red.")],
+        encounters: [
+            // Bulk: a giant that won't be pushed around, backed by goblins.
+            Encounter(triggerX: 1500, waves: [
+                Wave(spawns: [Spawn(.goblin, .left, tier: 0.7), Spawn(.goblin, .right, delay: 0.5, tier: 0.7), Spawn(.skeleton, .right, delay: 1.0, tier: 0.7)]),
+                Wave(spawns: [Spawn(.giant, .right, tier: 0.7), Spawn(.goblin, .left, delay: 1.5, tier: 0.8, shield: true)], line: "RAAAAGH!")]),
+            // Flight and the blink: bats overhead, a wizard blinking behind them.
+            Encounter(triggerX: 2300, waves: [
+                Wave(spawns: [Spawn(.bat, .left, tier: 0.8), Spawn(.bat, .right, delay: 0.4, tier: 0.8), Spawn(.skeleton, .right, delay: 1.2, tier: 0.8)]),
+                Wave(spawns: [Spawn(.wizard, .right, tier: 0.8), Spawn(.bat, .left, delay: 0.8, tier: 0.9), Spawn(.goblin, .left, delay: 1.5, tier: 0.9, hammer: true)])]),
+            // All three at once.
+            Encounter(triggerX: 2950, waves: [Wave(spawns: [Spawn(.demon, .right)])], endsLevel: true),
+        ],
+        theme: .forge)
+
+    /// Just the Demon, in a one-screen graveyard. Launch with `-demon`.
+    static let demonArena = LevelData(
+        name: "Demon Test", width: 1334, heroStart: 300,
+        encounters: [Encounter(triggerX: 250, waves: [Wave(spawns: [Spawn(.demon, .right)])], endsLevel: true)],
+        theme: .graveyard)
+
     /// Just the Frost Archmage, in a one-screen snowfield. Launch with `-archmage`.
     static let archmageArena = LevelData(
         name: "Archmage Test", width: 1334, heroStart: 300,
@@ -553,6 +585,7 @@ final class GameScene: SKScene {
     private var wyrm: BoneWyrm?
     private var necro: Fighter?
     private var archmage: Fighter?
+    private var demon: Fighter?
     private var snowFall: SKNode?
     private var finisherAt = FinisherTuning.threshold      // combo count at which the next finisher is armed
     private var finisherAura: SKShapeNode?
@@ -604,7 +637,7 @@ final class GameScene: SKScene {
         backgroundColor = SKColor(red: 0.55, green: 0.78, blue: 0.85, alpha: 1)
         if mode == .survival { level = LevelConfig(minX: 0, maxX: 3600); laneMinY = -260 }      // a closed arena (1.5x wider, 1.5x deeper), hero dead center
         else {
-            let d = mode == .hub ? Levels.hub : (args.contains("-archmage") ? Levels.archmageArena : args.contains("-wizard") ? Levels.wizardArena : args.contains("-bushes") ? Levels.bushArena : args.contains("-wraith") ? Levels.wraithArena : args.contains("-dark") ? Levels.darkArena : args.contains("-forgeking") ? Levels.forgeKingArena : args.contains("-foundry") ? Levels.foundryArena : args.contains("-doppel") ? Levels.doppelArena : args.contains("-herotest") ? Levels.heroArena : args.contains("-hammers") ? Levels.hammerArena : args.contains("-shields") ? Levels.shieldFoeArena : args.contains("-goblins") ? Levels.goblinArena : args.contains("-shieldtest") ? Levels.shieldArena : args.contains("-giant") ? Levels.giantArena : args.contains("-batboss") ? Levels.batBossArena : args.contains("-bitetest") ? Levels.biteArena : args.contains("-bats") ? Levels.batArena : args.contains("-necro") ? Levels.necroArena : args.contains("-wyrm") ? Levels.wyrmArena : ((testMode || args.contains("-sandbox")) ? Levels.sandbox : Levels.all[levelIndex]))
+            let d = mode == .hub ? Levels.hub : (args.contains("-demon") ? Levels.demonArena : args.contains("-archmage") ? Levels.archmageArena : args.contains("-wizard") ? Levels.wizardArena : args.contains("-bushes") ? Levels.bushArena : args.contains("-wraith") ? Levels.wraithArena : args.contains("-dark") ? Levels.darkArena : args.contains("-forgeking") ? Levels.forgeKingArena : args.contains("-foundry") ? Levels.foundryArena : args.contains("-doppel") ? Levels.doppelArena : args.contains("-herotest") ? Levels.heroArena : args.contains("-hammers") ? Levels.hammerArena : args.contains("-shields") ? Levels.shieldFoeArena : args.contains("-goblins") ? Levels.goblinArena : args.contains("-shieldtest") ? Levels.shieldArena : args.contains("-giant") ? Levels.giantArena : args.contains("-batboss") ? Levels.batBossArena : args.contains("-bitetest") ? Levels.biteArena : args.contains("-bats") ? Levels.batArena : args.contains("-necro") ? Levels.necroArena : args.contains("-wyrm") ? Levels.wyrmArena : ((testMode || args.contains("-sandbox")) ? Levels.sandbox : Levels.all[levelIndex]))
             levelData = d; fullLevel = d
             level = LevelConfig(minX: 0, maxX: d.width)
         }
@@ -1687,6 +1720,7 @@ final class GameScene: SKScene {
             if next.spawn.kind == .forgeKing { a.foes.append(spawnForgeKing(next.spawn, center: a.center)); continue }
             if next.spawn.kind == .wraith { a.foes.append(spawnWraith(next.spawn, center: a.center)); continue }
             if next.spawn.kind == .wizard { a.foes.append(spawnWizard(next.spawn, center: a.center)); continue }
+            if next.spawn.kind == .demon { a.foes.append(spawnDemon(next.spawn, center: a.center)); continue }
             if next.spawn.kind == .archmage { a.foes.append(spawnArchmage(next.spawn, center: a.center)); continue }
             let f = spawnLevelEnemy(next.spawn, center: a.center)
             a.foes.append(f)
@@ -1855,13 +1889,118 @@ final class GameScene: SKScene {
         return e
     }
 
+    // MARK: Demon
+
+    private func spawnDemon(_ s: Spawn, center: CGFloat) -> Fighter {
+        let x = center + (s.side == .left ? -1 : 1) * (size.width / 2 + 120)
+        let e = Fighter(name: "demon", skin: SpriteSkin.wrap("demon", ShadowSkin(base: SpriteSkin.wrap("skeleton", SkeletonSkin()), strength: 0.8)), stats: .demon)     // drawn art once Sprites/demon_*.png exist
+        e.team = 1
+        e.world = pickups
+        e.projectiles = arrows
+        if !args.contains("-passive") {
+            let brain = EnemyBrain(director: crowd)
+            brain.traits.attackRange = 210; brain.traits.holdDistance = 300
+            brain.traits.reaction = 0.5...0.9; brain.traits.cooldown = 1.6...2.8
+            brain.traits.chargeChance = 0; brain.traits.retreatChance = 0; brain.traits.comboChance = 0.15
+            let b = DemonBrain(inner: brain)
+            b.onPoof = { [weak self] p in self?.poof(at: p) }
+            b.onRain = { [weak self, weak e] spots in
+                for p in spots {
+                    self?.groundMark(at: p, duration: 0.9, width: 220)
+                    self?.run(.sequence([.wait(forDuration: 0.9), .run { [weak self] in self?.fireBurst(at: p, owner: e) }]))
+                }
+            }
+            b.onSlam = { [weak self] _ in self?.bossSlam(1) }
+            b.onHeroHit = { [weak self] h in self?.spawnImpact(at: CGPoint(x: h.rig.position.x, y: h.rig.position.y + h.rig.height + 60), damage: Hit.giantSlam.damage) }
+            b.onEnrage = { [weak self, weak e] in
+                self?.bossSlam(1)
+                if let e { self?.showBubble("BURN!", over: e, duration: 2) }
+            }
+            e.brain = b
+        }
+        e.rig.scaleFactor = 2.4
+        e.rig.facingRight = s.side == .left
+        e.rig.position = CGPoint(x: x, y: 110)
+        e.rig.zPosition = 300 - 110
+        enemies.append(e)
+        addChild(e.rig)
+        let bar = HealthBar(width: 150)
+        bar.zPosition = 9000
+        bars[ObjectIdentifier(e)] = bar
+        addChild(bar)
+        demon = e
+        bossName.text = "THE DEMON"
+        bossBar.isHidden = false; bossName.isHidden = false
+        bossBar.set(1)
+        camShake = 6
+        bossCard("THE DEMON", color: SKColor(red: 1, green: 0.45, blue: 0.2, alpha: 1))
+        return e
+    }
+
+    /// Fire lands on a marked spot. Stand outside the ring, or jump.
+    private func fireBurst(at p: CGPoint, owner: Fighter?) {
+        guard let owner, !owner.dead else { return }
+        // Flames erupt from the marked ring: a scorched patch, a fan of flame tongues shooting up, then a few embers.
+        let z = 300 - p.y
+        let scorch = SKShapeNode(ellipseOf: CGSize(width: 220, height: 82))
+        scorch.fillColor = SKColor(red: 1, green: 0.4, blue: 0.1, alpha: 0.7); scorch.strokeColor = .clear
+        scorch.position = p; scorch.zPosition = z - 1
+        addChild(scorch)
+        scorch.run(.sequence([.wait(forDuration: 0.25), .fadeOut(withDuration: 0.35), .removeFromParent()]))
+        func tongue(_ w: CGFloat, _ h: CGFloat, _ color: SKColor) -> SKShapeNode {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: -w / 2, y: 0))
+            path.addQuadCurve(to: CGPoint(x: 0, y: h), control: CGPoint(x: -w * 0.6, y: h * 0.45))
+            path.addQuadCurve(to: CGPoint(x: w / 2, y: 0), control: CGPoint(x: w * 0.6, y: h * 0.45))
+            path.closeSubpath()
+            let n = SKShapeNode(path: path)
+            n.fillColor = color; n.strokeColor = .clear; n.glowWidth = 4
+            return n
+        }
+        for i in 0..<9 {
+            let t = CGFloat(i) / 8 - 0.5
+            let h = CGFloat.random(in: 150...230) * (1 - abs(t) * 0.6)
+            let outer = tongue(.random(in: 46...64), h, SKColor(red: 1, green: 0.4, blue: 0.1, alpha: 0.95))
+            outer.addChild(tongue(24, h * 0.62, SKColor(red: 1, green: 0.9, blue: 0.45, alpha: 1)))
+            outer.position = CGPoint(x: p.x + t * 190, y: p.y + t * 0 + CGFloat.random(in: -10...10))
+            outer.zPosition = z + 1; outer.yScale = 0.05
+            addChild(outer)
+            outer.run(.sequence([.wait(forDuration: Double(i % 3) * 0.04),
+                                 .scaleY(to: 1, duration: 0.12),
+                                 .wait(forDuration: 0.18),
+                                 .group([.fadeOut(withDuration: 0.25), .scaleX(to: 0.4, duration: 0.25)]),
+                                 .removeFromParent()]))
+        }
+        for _ in 0..<10 {
+            let e = SKShapeNode(circleOfRadius: .random(in: 3...5))
+            e.fillColor = SKColor(red: 1, green: 0.75, blue: 0.3, alpha: 1); e.strokeColor = .clear
+            e.position = CGPoint(x: p.x + .random(in: -100...100), y: p.y + 10); e.zPosition = z + 2
+            addChild(e)
+            e.run(.sequence([.group([.moveBy(x: .random(in: -30...30), y: .random(in: 120...260), duration: 0.6), .fadeOut(withDuration: 0.6)]), .removeFromParent()]))
+        }
+        bossSlam(0.4)
+        let h = hero
+        if abs(h.rig.position.x - p.x) <= 110, abs(h.rig.position.y - p.y) <= 41, h.rig.height < 80, h.vulnerable {
+            h.receive(.eruption, power: 1, scale: 1, from: owner, away: h.rig.position.x >= p.x ? 1 : -1)
+            spawnImpact(at: CGPoint(x: h.rig.position.x, y: h.rig.position.y + h.rig.height + 60), damage: Hit.eruption.damage)
+        }
+    }
+
+    private func demonDefeated() {
+        guard let d = demon else { return }
+        demon = nil
+        bossBar.isHidden = true; bossName.isHidden = true
+        bossSlam(2)
+        poof(at: d.rig.position)
+    }
+
     // MARK: Frost wizards
 
     /// A frost wizard: keeps its distance, teleports, and throws ice that slows you. Shared by the boss (`boss: true`).
     private func makeWizard(x: CGFloat, y: CGFloat, tier: CGFloat, boss: Bool, facingRight: Bool) -> Fighter {
         var stats: FighterStats = boss ? .archmage : .wizard
         if tier > 0 { stats.maxHealth *= 1 + tier * 0.6; stats.damageScale *= 1 + tier * 0.25 }
-        let e = Fighter(name: boss ? "frost archmage" : "frost wizard", skin: WizardSkin(archmage: boss), stats: stats)
+        let e = Fighter(name: boss ? "frost archmage" : "frost wizard", skin: boss ? WizardSkin(archmage: true) : SpriteSkin.wrap("wizard", WizardSkin()), stats: stats)
         e.team = 1
         e.world = pickups
         e.projectiles = arrows
@@ -2188,8 +2327,8 @@ final class GameScene: SKScene {
     }
 
     /// A pulsing red ring on the ground: something is about to land here.
-    private func groundMark(at p: CGPoint, duration: TimeInterval) {
-        let ring = SKShapeNode(ellipseOf: CGSize(width: 300, height: 110))
+    private func groundMark(at p: CGPoint, duration: TimeInterval, width: CGFloat = 300) {
+        let ring = SKShapeNode(ellipseOf: CGSize(width: width, height: width * 0.37))
         ring.fillColor = SKColor(red: 1, green: 0.1, blue: 0.15, alpha: 0.22)
         ring.strokeColor = SKColor(red: 1, green: 0.3, blue: 0.3, alpha: 0.95); ring.lineWidth = 4
         ring.position = CGPoint(x: p.x, y: p.y - 4); ring.zPosition = 3
@@ -3330,6 +3469,14 @@ final class GameScene: SKScene {
             guard let b = e.brain as? WizardBrain else { continue }
             if let c = activeEncounter?.center { let h = size.width / 2; b.arena = (c - h + 150)...(c + h - 150) }
             else { b.arena = (level.minX + 80)...(level.maxX - 80) }
+        }
+        if let d = demon {
+            bossBar.set(d.healthFraction)
+            if let b = d.brain as? DemonBrain {
+                let c = activeEncounter?.center ?? (level.minX + level.maxX) / 2, h = size.width / 2
+                b.arena = (c - h + 160)...(c + h - 160)
+            }
+            if d.dead { demonDefeated() }
         }
         if let m = archmage {
             bossBar.set(m.healthFraction)
