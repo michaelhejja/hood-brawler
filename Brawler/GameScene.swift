@@ -607,7 +607,11 @@ final class GameScene: SKScene {
     private(set) var kills = 0
     private var gameOver = false
     private var nextGiantAt: TimeInterval = 45
+    /// Survival enemies have this share of their health, applied on top of the per-minute tier boost (so every tier is 35% softer).
+    private static let survivalHealthScale: CGFloat = 0.65
     private var nextBatAt: TimeInterval = 0
+    private var nextWizardAt: TimeInterval = 0
+    private var nextDemonAt: TimeInterval = 0
     private let killLabel = SKLabelNode(fontNamed: GameFont.banner)
     private let buffLabel = SKLabelNode(fontNamed: GameFont.banner)      // survival: the buffs collected so far
     private let comboHUD = ComboHUD()                                    // "12 HITS"
@@ -1125,6 +1129,7 @@ final class GameScene: SKScene {
             stats.damageScale *= 1 + tier * 0.35
             stats.runSpeed *= 1 + min(tier, 1) * 0.3
         }
+        if mode == .survival { stats.maxHealth *= Self.survivalHealthScale }      // easier early kills, so a run ends in the swarm and not in a slog
         let skin: Skin
         if king { skin = BatSkin(royal: true) } else if bat { skin = BatSkin() } else if necro { skin = NecromancerSkin() } else if goblin { skin = SpriteSkin.wrap("goblin", GoblinSkin()) } else { skin = SpriteSkin.wrap("skeleton", SkeletonSkin()) }
         let shaded: Skin
@@ -1344,20 +1349,38 @@ final class GameScene: SKScene {
             nextBatAt = now + max(6, 14 - (now - batStart) / 30)
             if enemies.filter({ !$0.dead && $0.stats.flies }).count < batCap { spawnAtEdge(tier: tier, bat: true) }
         }
-        if now >= nextGiantAt, !enemies.contains(where: { $0.stats.unlaunchable && !$0.dead }) {
+        // Frost wizards join at 3:00, one at a time at first, up to three by about 6 minutes.
+        let wizardStart: TimeInterval = args.contains("-earlywizards") ? 5 : 180
+        if now >= wizardStart, now >= nextWizardAt {
+            let wizardCap = min(3, 1 + Int((now - wizardStart) / 90))
+            nextWizardAt = now + max(12, 25 - (now - wizardStart) / 30)
+            if enemies.filter({ !$0.dead && $0.brain is WizardBrain }).count < wizardCap { spawnAtEdge(tier: tier, wizard: true) }
+        }
+        let bulkAlive = enemies.contains(where: { $0.stats.unlaunchable && !$0.dead })        // one giant or Demon at a time
+        if now >= nextGiantAt, !bulkAlive {
             nextGiantAt = now + max(35, 70 - now / 6)
             spawnAtEdge(tier: tier, giant: true)
+        }
+        // The Demon is a mini-boss like the giant: from 5:00, then every minute and a half or so, never alongside a giant.
+        let demonStart: TimeInterval = args.contains("-earlydemon") ? 5 : 300
+        if now >= demonStart, now >= nextDemonAt, !bulkAlive {
+            nextDemonAt = now + max(75, 100 - (now - demonStart) / 20)
+            nextGiantAt = max(nextGiantAt, now + 30)
+            spawnAtEdge(tier: tier, demon: true)
         }
     }
 
     /// Just off-screen to the left or right of the camera (clamped to the arena ends), facing in. Never on screen.
-    private func spawnAtEdge(tier: CGFloat, giant: Bool = false, bat: Bool = false, goblin: Bool = false, shield: Bool = false, hammer: Bool = false) {
+    private func spawnAtEdge(tier: CGFloat, giant: Bool = false, bat: Bool = false, goblin: Bool = false, shield: Bool = false, hammer: Bool = false, wizard: Bool = false, demon: Bool = false) {
         let reach = size.width / 2 + 90
         let sides = [cam.position.x - reach, cam.position.x + reach].map { min(max($0, level.minX + 60), level.maxX - 60) }
             .filter { abs($0 - cam.position.x) > size.width / 2 + 30 }               // a side squashed against the wall would be on screen
         guard let x = sides.randomElement() else { return }
+        let facing = x < hero.rig.position.x
+        if wizard { _ = makeWizard(x: x, y: .random(in: 50...170), tier: tier, boss: false, facingRight: facing); return }
+        if demon { _ = makeDemon(x: x, facingRight: facing, tier: tier, miniBoss: true); return }
         let e = spawnEnemy(x: x, y: .random(in: -220...190), giant: giant, tier: tier, bat: bat, goblin: goblin, shield: shield, hammer: hammer)
-        e.rig.facingRight = x < hero.rig.position.x
+        e.rig.facingRight = facing
     }
 
     private func setupKillLabel() {
@@ -1542,7 +1565,7 @@ final class GameScene: SKScene {
         for e in enemies where e.dead && !e.lootDropped {
             e.lootDropped = true
             kills += 1; updateKills()
-            if mode == .survival, e.stats.size > 1, !e.stats.flies {                         // a giant always drops a permanent buff
+            if mode == .survival, e.stats.size > 1, !e.stats.flies || e.brain is DemonBrain {      // a giant or a Demon always drops a permanent buff
                 pickups.launch(.item(Buff.random(for: hero).item), from: e.rig.position, height: 50, vx: .random(in: -40...40), vz: 700)
             }
             if !testMode, Double.random(in: 0...1) < foodDropChance {
@@ -1892,8 +1915,15 @@ final class GameScene: SKScene {
     // MARK: Demon
 
     private func spawnDemon(_ s: Spawn, center: CGFloat) -> Fighter {
-        let x = center + (s.side == .left ? -1 : 1) * (size.width / 2 + 120)
-        let e = Fighter(name: "demon", skin: SpriteSkin.wrap("demon", ShadowSkin(base: SpriteSkin.wrap("skeleton", SkeletonSkin()), strength: 0.8)), stats: .demon)     // drawn art once Sprites/demon_*.png exist
+        makeDemon(x: center + (s.side == .left ? -1 : 1) * (size.width / 2 + 120), facingRight: s.side == .left, tier: 0)
+    }
+
+    /// `miniBoss`: spawned anywhere (survival) like a giant: just the overhead health bar, no boss bar or name card.
+    private func makeDemon(x: CGFloat, facingRight: Bool, tier: CGFloat, miniBoss: Bool = false) -> Fighter {
+        var stats = FighterStats.demon
+        if tier > 0 { stats.maxHealth *= 1 + tier * 0.5; stats.damageScale *= 1 + tier * 0.15 }
+        if mode == .survival { stats.maxHealth *= Self.survivalHealthScale }
+        let e = Fighter(name: "demon", skin: SpriteSkin.wrap("demon", ShadowSkin(base: SpriteSkin.wrap("skeleton", SkeletonSkin()), strength: 0.8)), stats: stats)     // drawn art once Sprites/demon_*.png exist
         e.team = 1
         e.world = pickups
         e.projectiles = arrows
@@ -1919,7 +1949,7 @@ final class GameScene: SKScene {
             e.brain = b
         }
         e.rig.scaleFactor = 2.4
-        e.rig.facingRight = s.side == .left
+        e.rig.facingRight = facingRight
         e.rig.position = CGPoint(x: x, y: 110)
         e.rig.zPosition = 300 - 110
         enemies.append(e)
@@ -1928,6 +1958,10 @@ final class GameScene: SKScene {
         bar.zPosition = 9000
         bars[ObjectIdentifier(e)] = bar
         addChild(bar)
+        if miniBoss {
+            (e.brain as? DemonBrain)?.arena = (level.minX + 80)...(level.maxX - 80)
+            return e
+        }
         demon = e
         bossName.text = "THE DEMON"
         bossBar.isHidden = false; bossName.isHidden = false
@@ -2000,6 +2034,7 @@ final class GameScene: SKScene {
     private func makeWizard(x: CGFloat, y: CGFloat, tier: CGFloat, boss: Bool, facingRight: Bool) -> Fighter {
         var stats: FighterStats = boss ? .archmage : .wizard
         if tier > 0 { stats.maxHealth *= 1 + tier * 0.6; stats.damageScale *= 1 + tier * 0.25 }
+        if mode == .survival, !boss { stats.maxHealth *= Self.survivalHealthScale }
         let e = Fighter(name: boss ? "frost archmage" : "frost wizard", skin: boss ? WizardSkin(archmage: true) : SpriteSkin.wrap("wizard", WizardSkin()), stats: stats)
         e.team = 1
         e.world = pickups

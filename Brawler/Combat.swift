@@ -989,7 +989,7 @@ final class DemonBrain: Brain {
     private var nextBlink: TimeInterval = 0
     private var nextAir: TimeInterval = 0
     private var pressedSince: TimeInterval?
-    private let hoverY: CGFloat = 190
+    private let hoverY: CGFloat = 110
     private(set) var debugPhase = "ground"
 
     var arena: ClosedRange<CGFloat> = 0...1334

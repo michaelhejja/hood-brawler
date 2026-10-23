@@ -771,6 +771,7 @@ final class HumanoidRig: SKNode {
             track(head, [(-0.25, 0.14)])
             track(armWeapon, [(3.0, 0.14), (2.7, 0.3)])
             track(armOff, [(2.8, 0.14), (2.5, 0.3)])
+            track(sword, [(swordRest + 0.12, 0.14), (swordRest + 0.42, 0.3)])      // keeps the blade where the standard knockdown has it (body + arm + sword angles match)
             track(legFront, [(-0.4, 0.14)])
             track(legBack, [(-0.2, 0.14)])
         } else {
@@ -779,6 +780,7 @@ final class HumanoidRig: SKNode {
             track(head, [(-0.5, 0.16)])
             track(armWeapon, [(0.5, 0.16)])
             track(armOff, [(0.3, 0.16)])
+            track(sword, [(swordRest + 0.22, 0.16)])
             track(legFront, [(1.45, 0.16)])
             track(legBack, [(1.1, 0.16)])
         }

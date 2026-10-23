@@ -5,7 +5,7 @@ Repo: github.com/michaelhejja/hood-brawler
 Controls reference: `CONTROLS.md`
 
 ## Latest build
-Version 0.2, build 4 (see `git log` for the commit). Previous build: 3, `8ee7a87`.
+Version 0.2, build 5 (see `git log` for the commit). Previous builds: 4 `50d7f7a`, 3 `8ee7a87`.
 Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Art
@@ -20,10 +20,15 @@ Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 - Level 8, The Ashlands, borrows the Foundry look (`theme: .forge`) until it gets its own art. Launch with `-level 7`, or `-demon` for a one-screen arena.
 
 ## Open items
-1. The two alternate knockdown poses point the sword up, which undoes the arms-flat fix.
+1. The two alternate knockdown poses now set the sword angle to match the standard knockdown. Not yet checked by eye.
 2. The uppercut connect test hasn't been re-run since the variants and finishers went in. It was 10 of 12 at the last run.
-3. The black pill at the left edge of some screenshots is unexplained.
+3. The black pill in some screenshots: ignore it, it has not been seen on device.
 
 ## Testing
 - The simulator tools time out at about 30 seconds. Launch and screenshot in separate steps.
 - Debug launch flags (`-combotest`, `-finishertest`, `-bombgoblin` and others) are defined in `GameScene.swift`.
+
+## Survival mode
+- Every survival enemy has 65% of its health (`survivalHealthScale` in `GameScene.swift`), on top of the per-minute tier boost.
+- Frost wizards join at 3:00 (cap rises to 3). The Demon is a giant-style mini-boss from 5:00, roughly every 75-100 seconds, never alongside a giant, and drops a permanent buff.
+- Test flags: `-earlywizards`, `-earlydemon`. All timings and the 0.65 scale are untuned guesses.
