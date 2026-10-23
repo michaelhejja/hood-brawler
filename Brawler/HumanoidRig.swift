@@ -292,8 +292,82 @@ final class HumanoidRig: SKNode {
         run(.sequence([.wait(forDuration: 0.12), .run { [weak self] in self?.spawnSlash() }]))
     }
 
+    /// Which alternate version of the next jab / hook / haymaker to play (0 = the standard one). Visual only: every
+    /// variant keeps the original's step durations, so the hit windows (which are timed separately) still line up.
+    var variant = 0
+    /// A finisher swing: its slash trails are bigger and gold.
+    var finisher = false
+
+    /// 1: a cross, the whole body turning through the punch. 2: a hammer fist, snapped down from overhead.
+    private func jabVariant(_ v: Int) {
+        if v == 1 {
+            track(armOff, [(1.6, 0.04), (nil, 0.03), (0, 0.1)])
+            track(armWeapon, [(armRest - 0.8, 0.04), (nil, 0.03), (armRest, 0.1)])
+            track(legFront, [(0.7, 0.04), (nil, 0.03), (0, 0.1)])
+            track(legBack, [(-0.7, 0.04), (nil, 0.03), (0, 0.1)])
+            track(body, [(-0.3, 0.04), (nil, 0.03), (0, 0.1)])
+            track(head, [(0.2, 0.04), (nil, 0.03), (0, 0.1)])
+            body.run(.sequence([pose(y: restY * 0.88, x: 18, d: 0.04, .easeIn), .wait(forDuration: 0.03), pose(y: restY, d: 0.1), returnToIdle]))
+            run(.sequence([.wait(forDuration: 0.04), .run { [weak self] in self?.pop(at: CGPoint(x: 56, y: 0)) }]))
+        } else {
+            track(armOff, [(3.1, 0.015), (1.0, 0.025), (nil, 0.03), (0, 0.1)])
+            track(armWeapon, [(armRest - 0.4, 0.04), (nil, 0.03), (armRest, 0.1)])
+            track(legFront, [(0.8, 0.04), (nil, 0.03), (0, 0.1)])
+            track(legBack, [(-0.6, 0.04), (nil, 0.03), (0, 0.1)])
+            track(body, [(-0.5, 0.04), (nil, 0.03), (0, 0.1)])
+            track(head, [(0.3, 0.04), (nil, 0.03), (0, 0.1)])
+            body.run(.sequence([pose(y: restY * 0.76, x: 16, d: 0.04, .easeIn), .wait(forDuration: 0.03), pose(y: restY, d: 0.1), returnToIdle]))
+            run(.sequence([.wait(forDuration: 0.04), .run { [weak self] in self?.pop(at: CGPoint(x: 56, y: 0), height: 30) }]))
+        }
+    }
+
+    /// 1: an overhead chop. 2: a low sweep.
+    private func hookVariant(_ v: Int) {
+        if v == 1 {
+            track(armWeapon, [(3.0, 0.1), (1.1, 0.07), (nil, 0.1), (armRest, 0.2)])
+            track(armOff, [(2.2, 0.1), (0.2, 0.07), (nil, 0.1), (0, 0.2)])
+            track(sword, [(1.6, 0.1), (3.0, 0.07), (nil, 0.1), (swordRest, 0.2)])
+            body.run(.sequence([pose(y: restY * 1.03, x: -10, d: 0.1), pose(y: restY * 0.9, x: 22, d: 0.07, .easeIn), .wait(forDuration: 0.1), pose(y: restY, d: 0.2), returnToIdle]))
+            track(body, [(0.32, 0.1), (-0.4, 0.07), (nil, 0.1), (0, 0.2)])
+            run(.sequence([.wait(forDuration: 0.1), .run { [weak self] in self?.spawnSlash(start: 2.2, end: -0.5, radius: 74, lift: 34) }]))
+        } else {
+            track(armWeapon, [(-1.4, 0.1), (1.3, 0.07), (nil, 0.1), (armRest, 0.2)])
+            track(armOff, [(0.9, 0.1), (-0.4, 0.07), (nil, 0.1), (0, 0.2)])
+            track(sword, [(2.2, 0.1), (2.9, 0.07), (nil, 0.1), (swordRest, 0.2)])
+            track(legFront, [(-0.3, 0.1), (0.8, 0.07), (nil, 0.1), (0, 0.2)])
+            track(legBack, [(0.5, 0.1), (-0.5, 0.07), (nil, 0.1), (0, 0.2)])
+            body.run(.sequence([pose(y: restY * 0.8, x: -14, d: 0.1), pose(y: restY * 0.84, x: 26, d: 0.07, .easeIn), .wait(forDuration: 0.1), pose(y: restY, d: 0.2), returnToIdle]))
+            track(body, [(0.1, 0.1), (-0.45, 0.07), (nil, 0.1), (0, 0.2)])
+            run(.sequence([.wait(forDuration: 0.1), .run { [weak self] in self?.spawnSlash(start: 0.4, end: -1.1, radius: 92, lift: 14) }]))
+        }
+    }
+
+    /// 1: a spinning backhand. 2: an overhand smash.
+    private func haymakerVariant(_ v: Int) {
+        if v == 1 {
+            track(armWeapon, [(-2.0, 0.17), (1.2, 0.08), (nil, 0.12), (armRest, 0.25)])
+            track(armOff, [(1.0, 0.17), (0.8, 0.08), (nil, 0.12), (0, 0.25)])
+            track(legFront, [(-0.4, 0.17), (0.8, 0.08), (nil, 0.12), (0, 0.25)])
+            track(legBack, [(0.6, 0.17), (-0.9, 0.08), (nil, 0.12), (0, 0.25)])
+            track(body, [(0.55, 0.17), (-0.6, 0.08), (nil, 0.12), (0, 0.25)])
+            track(head, [(-0.2, 0.17), (0.25, 0.08), (nil, 0.12), (0, 0.25)])
+            body.run(.sequence([pose(y: restY * 0.82, x: -26, d: 0.17, .easeOut), pose(y: restY * 0.92, x: 40, d: 0.08, .easeIn), .wait(forDuration: 0.12), pose(y: restY, d: 0.25), returnToIdle]))
+            run(.sequence([.wait(forDuration: 0.17), .run { [weak self] in self?.pop(at: CGPoint(x: 72, y: 40)) }]))
+        } else {
+            track(armWeapon, [(3.1, 0.17), (0.8, 0.08), (nil, 0.12), (armRest, 0.25)])
+            track(armOff, [(2.0, 0.17), (0.3, 0.08), (nil, 0.12), (0, 0.25)])
+            track(legFront, [(0.2, 0.17), (0.6, 0.08), (nil, 0.12), (0, 0.25)])
+            track(legBack, [(0.2, 0.17), (-0.6, 0.08), (nil, 0.12), (0, 0.25)])
+            track(body, [(-0.2, 0.17), (-0.35, 0.08), (nil, 0.12), (0, 0.25)])
+            track(head, [(-0.1, 0.17), (0.2, 0.08), (nil, 0.12), (0, 0.25)])
+            body.run(.sequence([pose(y: restY * 1.05, x: -12, d: 0.17, .easeOut), pose(y: restY * 0.82, x: 30, d: 0.08, .easeIn), .wait(forDuration: 0.12), pose(y: restY, d: 0.25), returnToIdle]))
+            run(.sequence([.wait(forDuration: 0.17), .run { [weak self] in self?.pop(at: CGPoint(x: 66, y: 20)) }]))
+        }
+    }
+
     /// Tap: quick straight punch with the off hand (the one without the sword).
     private func jab() {
+        if variant != 0 { jabVariant(variant); return }
         track(armOff, [(1.55, 0.04), (nil, 0.03), (0, 0.1)])
         track(armWeapon, [(armRest - 0.35, 0.04), (nil, 0.03), (armRest, 0.1)])   // guard hand tucks up
         // Whole-body punch: step into a lunge, drop the weight, twist the shoulders through, then recover.
@@ -312,6 +386,7 @@ final class HumanoidRig: SKNode {
 
     /// Forward swipe: wide hooking swing with the weapon hand, committing the whole body.
     private func hook() {
+        if variant != 0 { hookVariant(variant); return }
         track(armWeapon, [(-0.9, 0.1), (1.7, 0.07), (nil, 0.1), (armRest, 0.2)])
         track(armOff, [(0.5, 0.1), (-0.6, 0.07), (nil, 0.1), (0, 0.2)])
         track(sword, [(2.5, 0.1), (3.0, 0.07), (nil, 0.1), (swordRest, 0.2)])
@@ -328,6 +403,7 @@ final class HumanoidRig: SKNode {
 
     /// Coil back with the whole body, then unwind into a huge overhand: hips and shoulders rotate, the rear leg drives.
     private func haymaker() {
+        if variant != 0 { haymakerVariant(variant); return }
         track(armWeapon, [(-1.5, 0.17), (1.55, 0.08), (nil, 0.12), (armRest, 0.25)])      // cocked far back, then thrown
         track(armOff,    [(1.7, 0.17), (0.4, 0.08), (nil, 0.12), (0, 0.25)])              // guard hand up by the chin
         track(legFront,  [(-0.2, 0.17), (0.7, 0.08), (nil, 0.12), (0, 0.25)])             // lead foot steps through
@@ -471,6 +547,7 @@ final class HumanoidRig: SKNode {
 
     /// Blasted flat: topples backwards, limbs flung out, and stays down until the fighter gets up.
     private func knockdown() {
+        if reaction != 0 { knockdownVariant(reaction); return }
         track(body, [(1.5, 0.14)])
         body.run(pose(y: restY * 0.7, d: 0.14, .easeOut))
         track(head, [(0.25, 0.14)])
@@ -625,6 +702,7 @@ final class HumanoidRig: SKNode {
     }
 
     private func hit() {
+        if reaction != 0 { hitVariant(reaction); return }
         body.run(.sequence([
             pose(y: restY, x: -26, d: 0.08, .easeOut),
             pose(y: restY, d: 0.25),
@@ -634,6 +712,52 @@ final class HumanoidRig: SKNode {
         track(armWeapon, [(1.6, 0.08), (armRest, 0.3)])
         track(armOff, [(1.2, 0.08), (0, 0.3)])
         run(.repeat(.sequence([.fadeAlpha(to: 0.3, duration: 0.05), .fadeAlpha(to: 1, duration: 0.05)]), count: 4))
+    }
+
+    /// Which alternate flinch / knockdown to play (0 = the standard one). Visual only: durations match the standard poses.
+    var reaction = 0
+
+    /// 1: spun half-around, head whipped to the side, arms flung out. 2: folds forward over the hit, knees buckling.
+    private func hitVariant(_ v: Int) {
+        if v == 1 {
+            body.run(.sequence([pose(y: restY, x: -18, d: 0.08, .easeOut), pose(y: restY, d: 0.25), returnToIdle]))
+            track(body, [(-0.28, 0.08), (0, 0.3)])
+            track(head, [(-0.75, 0.08), (0, 0.3)])
+            track(armWeapon, [(2.5, 0.08), (armRest, 0.3)])
+            track(armOff, [(2.1, 0.08), (0, 0.3)])
+            track(legFront, [(0.5, 0.08), (0, 0.3)])
+            track(legBack, [(-0.4, 0.08), (0, 0.3)])
+        } else {
+            body.run(.sequence([pose(y: restY * 0.86, x: -8, sx: 1.08, sy: 0.88, d: 0.08, .easeOut), pose(y: restY, d: 0.25), returnToIdle]))
+            track(body, [(-0.5, 0.08), (0, 0.3)])
+            track(head, [(-0.35, 0.08), (0, 0.3)])
+            track(armWeapon, [(0.7, 0.08), (armRest, 0.3)])
+            track(armOff, [(0.6, 0.08), (0, 0.3)])
+            track(legFront, [(0.7, 0.08), (0, 0.3)])
+            track(legBack, [(-0.4, 0.08), (0, 0.3)])
+        }
+        run(.repeat(.sequence([.fadeAlpha(to: 0.3, duration: 0.05), .fadeAlpha(to: 1, duration: 0.05)]), count: 4))
+    }
+
+    /// 1: a face-plant, arms stretched out ahead. 2: slumps into a sit, legs out in front, head down.
+    private func knockdownVariant(_ v: Int) {
+        if v == 1 {
+            track(body, [(-1.5, 0.14)])
+            body.run(pose(y: restY * 0.7, d: 0.14, .easeOut))
+            track(head, [(-0.25, 0.14)])
+            track(armWeapon, [(3.0, 0.14), (2.7, 0.3)])
+            track(armOff, [(2.8, 0.14), (2.5, 0.3)])
+            track(legFront, [(-0.4, 0.14)])
+            track(legBack, [(-0.2, 0.14)])
+        } else {
+            track(body, [(0.9, 0.16)])
+            body.run(pose(y: restY * 0.58, d: 0.16, .easeOut))
+            track(head, [(-0.5, 0.16)])
+            track(armWeapon, [(0.5, 0.16)])
+            track(armOff, [(0.3, 0.16)])
+            track(legFront, [(1.45, 0.16)])
+            track(legBack, [(1.1, 0.16)])
+        }
     }
 
     // MARK: Action helpers
@@ -666,9 +790,9 @@ final class HumanoidRig: SKNode {
     private func spawnSlash(start: CGFloat = 2.0, end: CGFloat = -0.4, radius: CGFloat = 70, lift: CGFloat = 44,
                             clockwise: Bool = true, parent: SKNode? = nil) {
         let path = CGMutablePath()
-        path.addArc(center: .zero, radius: radius, startAngle: start, endAngle: end, clockwise: clockwise)
+        path.addArc(center: .zero, radius: radius * (finisher ? 1.5 : 1), startAngle: start, endAngle: end, clockwise: clockwise)
         let fx = SKShapeNode(path: path)
-        fx.strokeColor = .white; fx.lineWidth = 8; fx.lineCap = .round; fx.glowWidth = 3
+        fx.strokeColor = finisher ? SKColor(red: 1, green: 0.82, blue: 0.2, alpha: 1) : .white; fx.lineWidth = finisher ? 15 : 8; fx.lineCap = .round; fx.glowWidth = finisher ? 9 : 3
         fx.position = CGPoint(x: layout.offShoulder.x, y: restY + lift)
         fx.zPosition = 10
         (parent ?? self).addChild(fx)
@@ -677,9 +801,9 @@ final class HumanoidRig: SKNode {
     }
 
     /// Small impact flash at the fist.
-    private func pop(at p: CGPoint) {
+    private func pop(at p: CGPoint, height: CGFloat? = nil) {
         let star = styled(SKShapeNode(circleOfRadius: 9), .white, line: 3)
-        star.position = CGPoint(x: p.x, y: restY + 44)
+        star.position = CGPoint(x: p.x, y: height ?? restY + 44)
         star.zPosition = 10
         addChild(star)
         star.run(.sequence([.group([.scale(to: 1.8, duration: 0.12), .fadeOut(withDuration: 0.12)]), .removeFromParent()]))

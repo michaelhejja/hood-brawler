@@ -554,6 +554,8 @@ final class GameScene: SKScene {
     private var necro: Fighter?
     private var archmage: Fighter?
     private var snowFall: SKNode?
+    private var finisherAt = FinisherTuning.threshold      // combo count at which the next finisher is armed
+    private var finisherAura: SKShapeNode?
     private var batKing: Fighter?
     private var doppel: Fighter?
     private var forgeKing: Fighter?
@@ -575,6 +577,7 @@ final class GameScene: SKScene {
     private var nextBatAt: TimeInterval = 0
     private let killLabel = SKLabelNode(fontNamed: GameFont.banner)
     private let buffLabel = SKLabelNode(fontNamed: GameFont.banner)      // survival: the buffs collected so far
+    private let comboHUD = ComboHUD()                                    // "12 HITS"
 
     let hero = HeroKind.selected.makeFighter()
     private var enemies: [Fighter] = []
@@ -630,6 +633,7 @@ final class GameScene: SKScene {
         hitOverlay.enabled = args.contains("-hitboxes")
         hero.world = pickups
         hero.onMoveStart = { [weak self] in self?.windup($0) }
+        hero.onFinisher = { [weak self] in self?.finisherFired($0) }
         hero.special = HeroKind.selected.special
         if mode != .survival { hero.doorCheck = { [weak self] in self?.tryEnterDoor() ?? false } }
         hero.onSpecial = { [weak self] in self?.specialBurst($0) }
@@ -682,6 +686,8 @@ final class GameScene: SKScene {
                 if abs(dx) < 160 { self.hero.handle(.tap) }
             }, .wait(forDuration: 0.25)]))]))
         }
+        if let i = args.firstIndex(of: "-critchance"), i + 1 < args.count, let p = Double(args[i + 1]) { Combat.critChance = p }          // debug: force lucky hits
+        if let i = args.firstIndex(of: "-variantchance"), i + 1 < args.count, let p = Double(args[i + 1]) { Fighter.variantChance = p }   // debug: force alternate swings
         if let i = args.firstIndex(of: "-frenzy"), i + 1 < args.count, let n = Int(args[i + 1]) {      // debug: start with N stacks of Frenzy
             hero.stats.attackSpeed = 1 + 0.08 * CGFloat(n); hero.buffs["FRENZY"] = n
         }
@@ -693,6 +699,38 @@ final class GameScene: SKScene {
                 guard let self else { return }
                 self.hero.receive(.crumble, power: 1, scale: 1, from: nil, away: 1)
             }]))
+        }
+        if let i = args.firstIndex(of: "-reactpose"), i + 2 < args.count, let v = Int(args[i + 2]) {      // debug: `-reactpose hit|down N` freezes that flinch / knockdown after it has settled
+            let down = args[i + 1] == "down"
+            run(.sequence([.wait(forDuration: 1.0), .run { [weak self] in self?.hero.rig.reaction = v; self?.hero.rig.play(down ? .knockdown : .hit) },
+                           .wait(forDuration: down ? 0.8 : 0.1), .run { [weak self] in self?.hero.rig.speed = 0 }]))
+        }
+        if let i = args.firstIndex(of: "-variantpose"), i + 2 < args.count, let v = Int(args[i + 2]) {      // debug: `-variantpose jab|hook|haymaker N` freezes that swing at its hit frame
+            let name = args[i + 1]
+            let anim: CharacterAnimation = name == "hook" ? .hook : name == "haymaker" ? .haymaker : .jab
+            var peak: TimeInterval = anim == .jab ? 0.07 : anim == .hook ? 0.17 : 0.25
+            if i + 3 < args.count, let t = Double(args[i + 3]) { peak = t }          // optional 4th arg: freeze at this time instead
+            run(.sequence([.wait(forDuration: 1.0), .run { [weak self] in self?.hero.rig.variant = v; self?.hero.rig.play(anim) },
+                           .wait(forDuration: peak), .run { [weak self] in self?.hero.rig.speed = 0 }]))
+        }
+        if args.contains("-finishertest") {        // debug: finishers always armed; scripted tap, tap, uppercut, ground smash, jump, air slam at the nearest enemy
+            hero.raiseMaxHealth(by: 900)
+            let script: [(String, TimeInterval)] = [("face", 0.05), ("tap", 0.26), ("tap", 0.26), ("up", 1.8), ("face", 0.05), ("smash", 1.6), ("face", 0.05), ("up", 0.42), ("down", 2.2)]
+            var steps: [SKAction] = [.wait(forDuration: 2.5)]
+            for (s, d) in script { steps.append(.run { [weak self] in self?.finisherTest(s) }); steps.append(.wait(forDuration: d)) }
+            run(.repeatForever(.sequence(steps)))
+        }
+        if args.contains("-combotest") {           // debug: a sturdy hero auto-attacks the nearest enemy; logs COMBO lines
+            hero.raiseMaxHealth(by: 900)
+            run(.sequence([.wait(forDuration: 2), .repeatForever(.sequence([.run { [weak self] in
+                guard let self, !self.hero.dead else { return }
+                let hx = self.hero.rig.position.x
+                guard let e = self.enemies.filter({ !$0.dead }).min(by: { abs($0.rig.position.x - hx) < abs($1.rig.position.x - hx) }) else { return }
+                let dx = e.rig.position.x - hx
+                if abs(dx) > 100 { self.hero.rig.position = CGPoint(x: e.rig.position.x - (dx > 0 ? 80 : -80), y: e.rig.position.y) }
+                self.hero.rig.facingRight = dx > 0
+                self.hero.handle(Int(self.gameTime * 3.5) % 4 == 3 ? .swipe(dx > 0 ? .right : .left) : .tap)      // mostly taps, with a forward swipe (the hook) every fourth
+            }, .wait(forDuration: 0.28)]))]))
         }
         if args.contains("-bombtest") {            // debug: the hero walks to lobbing distance from the nearest enemy and throws a bomb; -bombself also blasts the hero
             run(.sequence([.wait(forDuration: 1.0), .run { [weak self] in
@@ -1310,6 +1348,8 @@ final class GameScene: SKScene {
         buffLabel.addChild(buffShadow)
         buffLabel.isHidden = mode != .survival
         cam.addChild(buffLabel)
+        comboHUD.zPosition = 10_000
+        cam.addChild(comboHUD)
         updateKills()
     }
 
@@ -1341,10 +1381,96 @@ final class GameScene: SKScene {
             let k = finisher ? Emphasis.massive : Emphasis.kill
             if k.impact > e.impact { e = k }
         }
+        if mine.contains(where: { $0.crit }), Emphasis.medium.impact > e.impact { e = .medium }      // a lucky hit always gets at least a medium zoom
         guard e.impact > 0 else { return }
         let bonus = min(1.6, 1 + 0.25 * CGFloat(mine.count - 1) + (ko ? 0.2 : 0))
         fx.add(zoom: e.impact * bonus, slow: max(0.2, 1 - (1 - e.slow) * min(1.3, bonus)), attack: 0.05,
                hold: e.hold * Double(bonus), release: e.release, at: realNow)
+    }
+
+    private func finisherTest(_ step: String) {
+        guard !hero.dead else { return }
+        let hx = hero.rig.position.x
+        if step == "face" {
+            guard let e = enemies.filter({ !$0.dead }).min(by: { abs($0.rig.position.x - hx) < abs($1.rig.position.x - hx) }) else { return }
+            let dx = e.rig.position.x - hx
+            hero.rig.position = CGPoint(x: e.rig.position.x - (dx >= 0 ? 85 : -85), y: e.rig.position.y)
+            hero.rig.facingRight = dx >= 0
+            return
+        }
+        switch step {
+        case "tap":   hero.handle(.tap)
+        case "up":    hero.handle(.swipe(.up))
+        case "down":  hero.handle(.swipe(.down))
+        case "smash": hero.debugPerform(MoveTable.groundSmash)
+        default: break
+        }
+    }
+
+    /// A gold ring under the hero while a finisher is armed.
+    private func updateFinisherAura() {
+        if hero.finisherReady, !hero.dead {
+            guard finisherAura == nil else { return }
+            let a = SKShapeNode(ellipseOf: CGSize(width: 96, height: 26))
+            a.fillColor = SKColor(red: 1, green: 0.85, blue: 0.3, alpha: 0.3); a.strokeColor = SKColor(red: 1, green: 0.9, blue: 0.4, alpha: 0.95)
+            a.lineWidth = 4; a.glowWidth = 8; a.position = CGPoint(x: 0, y: 2); a.zPosition = -5
+            a.run(.repeatForever(.sequence([.scale(to: 1.15, duration: 0.3), .scale(to: 0.92, duration: 0.3)])))
+            hero.rig.addChild(a); finisherAura = a
+        } else if let a = finisherAura { a.removeFromParent(); finisherAura = nil }
+    }
+
+    /// A finisher went off: spend the charge (the next one is `threshold` hits away), name it, shake the screen and ring the impact.
+    private func finisherFired(_ m: Move) {
+        finisherAt = comboHUD.count + FinisherTuning.threshold
+        let p = hero.rig.position
+        let dir: CGFloat = hero.rig.facingRight ? 1 : -1
+        let info: (String, CGFloat, TimeInterval, CGFloat)
+        switch m.animation {
+        case .uppercut?: info = ("SKYBREAKER!", 50, 0.07, 240)
+        case .smash?:    info = ("EARTHSHATTER!", 130, 0.25, 330)
+        default:         info = ("METEOR!", 0, 0, 380)
+        }
+        let (title, ringX, delay, size) = info
+        NSLog("FINISHER %@ at combo %d, next at %d", title, comboHUD.count, finisherAt)
+        camShake = max(camShake, 16)
+        for (i, c) in [SKColor.black, SKColor(red: 1, green: 0.82, blue: 0.2, alpha: 1)].enumerated() {
+            let l = SKLabelNode(fontNamed: GameFont.banner)
+            l.text = title; l.fontSize = 66; l.fontColor = c
+            l.position = CGPoint(x: p.x + (i == 0 ? 4 : 0), y: p.y + hero.rig.height + 200 + (i == 0 ? -4 : 0)); l.zPosition = 9800 + CGFloat(i)
+            l.setScale(0.3)
+            addChild(l)
+            l.run(.sequence([.scale(to: 1.3, duration: 0.08), .scale(to: 1, duration: 0.12), .wait(forDuration: 0.45),
+                             .group([.moveBy(x: 0, y: 50, duration: 0.4), .fadeOut(withDuration: 0.4)]), .removeFromParent()]))
+        }
+        run(.sequence([.wait(forDuration: delay), .run { [weak self] in
+            guard let self else { return }
+            let ring = SKShapeNode(ellipseOf: CGSize(width: size * 2, height: size * 0.55))
+            ring.fillColor = SKColor(red: 1, green: 0.85, blue: 0.3, alpha: 0.3); ring.strokeColor = SKColor(red: 1, green: 0.9, blue: 0.4, alpha: 1); ring.lineWidth = 7; ring.glowWidth = 8
+            ring.position = CGPoint(x: p.x + dir * ringX, y: p.y); ring.zPosition = 8000; ring.setScale(0.15)
+            self.addChild(ring)
+            ring.run(.sequence([.group([.scale(to: 1, duration: 0.22), .fadeOut(withDuration: 0.55)]), .removeFromParent()]))
+        }]))
+    }
+
+    /// A lucky hit: a starburst and a big comic callout over the target.
+    private func showCrit(at p: CGPoint) {
+        let word = ["CRIT!", "SMASH!", "WHAM!", "CRUSHING!"].randomElement() ?? "CRIT!"
+        let tilt = CGFloat.random(in: -0.15...0.15)
+        for (i, c) in [SKColor.black, SKColor(red: 1, green: 0.82, blue: 0.2, alpha: 1)].enumerated() {
+            let l = SKLabelNode(fontNamed: GameFont.banner)
+            l.text = word; l.fontSize = 46; l.fontColor = c; l.zRotation = tilt
+            l.position = CGPoint(x: p.x + (i == 0 ? 3 : 0), y: p.y + 40 + (i == 0 ? -3 : 0)); l.zPosition = 9700 + CGFloat(i)
+            l.setScale(0.3)
+            addChild(l)
+            l.run(.sequence([.scale(to: 1.35, duration: 0.07), .scale(to: 1, duration: 0.1), .wait(forDuration: 0.25),
+                             .group([.moveBy(x: 0, y: 40, duration: 0.35), .fadeOut(withDuration: 0.35)]), .removeFromParent()]))
+        }
+        let burst = SKShapeNode(circleOfRadius: 26)
+        burst.fillColor = SKColor(red: 1, green: 0.95, blue: 0.6, alpha: 0.9); burst.strokeColor = .white; burst.lineWidth = 4; burst.glowWidth = 6
+        burst.position = p; burst.zPosition = 9650; burst.setScale(0.3)
+        addChild(burst)
+        burst.run(.sequence([.group([.scale(to: 2.2, duration: 0.14), .fadeOut(withDuration: 0.18)]), .removeFromParent()]))
+        NSLog("CRIT %@", word)
     }
 
     private func updateCombat(now: TimeInterval) {
@@ -1354,8 +1480,14 @@ final class GameScene: SKScene {
         for c in contacts {
             spawnImpact(at: c.point, damage: c.damage)
             c.attacker?.addMeter(dealt: c.damage)
+            if c.crit { showCrit(at: c.point) }
         }
         for c in crates.resolve(hero: hero, pickups: pickups) { spawnImpact(at: c.point, damage: c.damage) }      // smashing crates doesn't charge the special
+        comboHUD.update(now: now, hits: contacts.filter { $0.attacker === hero }.count, heroHealth: hero.health, heroDead: hero.dead)
+        if comboHUD.count == 0 { finisherAt = FinisherTuning.threshold }
+        hero.finisherReady = args.contains("-finishertest") || (comboHUD.count >= finisherAt && !hero.dead)
+        comboHUD.finisherReady = hero.finisherReady && comboHUD.count > 0
+        updateFinisherAura()
         emphasize(contacts)
         if args.contains("-launchprofile"), profileHit0 == nil, contacts.contains(where: { $0.move?.name == "uppercut" }) { profileHit0 = realNow }
 
@@ -3098,6 +3230,7 @@ final class GameScene: SKScene {
         debugLayer.removeAllChildren()
         killLabel.position = CGPoint(x: visibleHalfWidth - 28, y: visibleHalfHeight - 100)
         buffLabel.position = CGPoint(x: visibleHalfWidth - 28, y: visibleHalfHeight - 140)
+        comboHUD.position = CGPoint(x: -visibleHalfWidth + 40, y: visibleHalfHeight - 150)
         goLabel.position = CGPoint(x: visibleHalfWidth - 150, y: 40)
         debugLabel.position = CGPoint(x: 0, y: visibleHalfHeight - 56)
         heroBar.position = CGPoint(x: 0, y: -visibleHalfHeight + 28)

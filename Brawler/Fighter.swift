@@ -121,6 +121,9 @@ final class Fighter {
     let rig: HumanoidRig
     var stats: FighterStats
     var onMoveStart: ((Move) -> Void)?     // the scene listens on the hero for camera windups
+    var finisherReady = false              // the scene sets this from the combo counter: uppercut / smash / air slam become finishers
+    var onFinisher: ((Move) -> Void)?      // a finisher just went off (the scene spends the charge and plays the effects)
+    private var slamFinisher = false       // this air slam will land as the big shockwave
     var brain: Brain?                      // who is driving this fighter (player or AI)
     weak var projectiles: ProjectileField?
     private(set) var ammo: Int?
@@ -477,6 +480,7 @@ final class Fighter {
         if guardBreaks, guardEnergy >= guardCapacity {          // overloaded: the shield gives out and its holder is staggered
             disarm(away: away)                                  // the shield flies out of its hand
             hurtUntil = now + 1.0; actionUntil = hurtUntil
+            rig.reaction = 0
             rig.play(.hit)
             world?.floatText("SHIELD BREAK", at: above, color: .white)
             return
@@ -484,7 +488,40 @@ final class Fighter {
         world?.floatText(guardEnergy >= guardCapacity ? "MAX" : "BLOCK", at: above, color: gold)
     }
 
-    private func perform(_ requested: Move) {
+    private var lastReaction: [String: Int] = [:]
+
+    /// Picks the flinch ("hit") or knockdown ("down") style for the next hit: 0 = standard, never the same one twice running.
+    private func rollReaction(_ kind: String) -> Int {
+        guard !stats.flies else { return 0 }
+        let v = [0, 1, 2].filter { $0 != (lastReaction[kind] ?? 0) }.randomElement() ?? 0
+        lastReaction[kind] = v
+        NSLog("REACT %@ %d", kind, v)
+        return v
+    }
+
+    /// Chance that a hero jab / hook / haymaker plays an alternate (visual-only) version.
+    static var variantChance = 0.4
+    private var lastVariant: [CharacterAnimation: Int] = [:]
+
+    /// 0 = the standard swing. Never the same alternate twice running, so the swings keep looking fresh.
+    private func chooseVariant(_ anim: CharacterAnimation) -> Int {
+        guard collectsItems, anim == .jab || anim == .hook || anim == .haymaker else { return 0 }
+        let last = lastVariant[anim] ?? 0
+        let v = Double.random(in: 0...1) < Fighter.variantChance ? ([1, 2].filter { $0 != last }.randomElement() ?? 1) : 0
+        lastVariant[anim] = v
+        if v != 0 { NSLog("VARIANT %@ %d", "\(anim)", v) }
+        return v
+    }
+
+    private func perform(_ original: Move) {
+        var requested = original
+        if original.name != "air slam" { slamFinisher = false }
+        if collectsItems, finisherReady, let f = MoveTable.finisherVersion(of: original.name) {
+            requested = f
+            onFinisher?(f)
+        } else if collectsItems, finisherReady, original.name == "air slam" {
+            slamFinisher = true                                    // the landing (not the dive) is the finisher
+        }
         let tempo = stats.attackSpeed
         let move = (tempo > 1 && !airborne && requested.jumpHeight == 0 && (!requested.hits.isEmpty || requested.projectile != nil)) ? requested.sped(by: tempo) : requested
         onMoveStart?(move)
@@ -515,6 +552,8 @@ final class Fighter {
             startJump(move)
         } else if let anim = move.animation {
             rig.speed = move.hits.isEmpty && move.projectile == nil ? 1 : (airborne ? 1 : max(1, stats.attackSpeed))
+            rig.variant = chooseVariant(anim)
+            rig.finisher = move.finisher
             rig.play(anim)
             if !airborne { actionUntil = now + move.lock; loco = nil }
         } else if !airborne {
@@ -573,8 +612,11 @@ final class Fighter {
         airborne = false; falling = false; vz = 0; jump = nil
         if slammed {
             // Cooldown with the combo chain open immediately (see MoveTable.slamLanding)
-            let m = MoveTable.slamLanding
+            let big = slamFinisher; slamFinisher = false
+            let m = big ? MoveTable.slamLandingFinisher : MoveTable.slamLanding
+            rig.finisher = big
             rig.play(.slamLand)
+            if big { onFinisher?(m) }
             current = (m, now)
             claims = [:]
             actionUntil = now + m.lock
@@ -684,25 +726,32 @@ final class Fighter {
             knock = away * min(hit.knockback * power, 260)
             hurtUntil = now + hit.stun
             actionUntil = hurtUntil
+            rig.reaction = 0
             rig.play(.hit)
         } else if stats.unlaunchable && !dead {
             // Too big to move: a launcher or heavy blow only shoves it back a little and rocks its head
             knock = away * min(hit.knockback * power, 120)
             hurtUntil = now + hit.stun * 0.7
             actionUntil = hurtUntil
-            rig.play(hit.launch != 0 || hit.knockback * power >= 500 ? .headRock : .hit)
+            let heavy = hit.launch != 0 || hit.knockback * power >= 500
+            rig.reaction = heavy ? 0 : rollReaction("hit")
+            rig.play(heavy ? .headRock : .hit)
         } else if airborne || hit.launch > 0 {
             // Juggle: any hit keeps a launched fighter up; launchers send them higher, spikes drive them down
+            let rejuggle = launched
             if hit.launch > 0 { vz = hit.launch * (0.6 + 0.4 * power) }
             else if hit.launch < 0 { vz = hit.launch }
             else { vz = max(vz, 260) }
             jump = nil; airborne = true; falling = true; launched = true
+            if !rejuggle { rig.reaction = rollReaction("down") }      // one style per launch: the landing keeps it
             rig.play(.knockdown)
         } else if hit.knockback * power >= 500 || dead {
+            rig.reaction = rollReaction("down")
             lieDown(for: hit.stun + 0.4)                    // blasted flat
         } else {
             hurtUntil = now + hit.stun                      // ordinary flinch
             actionUntil = hurtUntil
+            rig.reaction = rollReaction("hit")
             rig.play(.hit)
         }
         if dead { deadSince = deadSince ?? now }

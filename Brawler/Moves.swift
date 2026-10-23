@@ -80,6 +80,10 @@ extension Hit {
     static let dashJab    = Hit(start: 0.04, duration: 0.14, reach: 0...150, damage: 8, knockback: 320, stun: 0.3)
     static let dashHook   = Hit(start: 0.08, duration: 0.18, reach: 0...160, damage: 16, knockback: 420, stun: 0.45, disarm: true)   // <500: staggers, doesn't floor
     static let uppercut   = Hit(start: 0.07, duration: 0.14, reach: -10...150, heightTolerance: 300, damage: 14, knockback: 80, launch: 1202, stun: 0.4)   // 850 x sqrt(2): apex doubles
+    // Finisher versions (long combos): about double the damage, wider and stronger launches. Same timing as the originals.
+    static let uppercutFinisher = Hit(start: 0.07, duration: 0.18, reach: -30...200, depth: 70, heightTolerance: 320, damage: 32, knockback: 120, launch: 1500, stun: 0.6)
+    static let smashFinisher    = Hit(start: 0.25, duration: 0.14, reach: -140...260, depth: 90, heightTolerance: 140, damage: 38, knockback: 900, launch: 600, stun: 0.8, vsHeavy: 2)
+    static let shockwaveFinisher = Hit(start: 0, duration: 0.14, reach: -280...280, depth: 100, heightTolerance: 100, damage: 28, knockback: 800, launch: 650, stun: 0.8, vsHeavy: 2)
     // Air strike: quick, short-range, forgiving about height so it connects with things above or below you
     static let airStrike  = Hit(start: 0.03, duration: 0.14, reach: -10...125, depth: 38, heightTolerance: 220, damage: 8, knockback: 180, stun: 0.3)
     static let diveSlam   = Hit(start: 0, duration: 1.0, reach: 0...150, depth: 40, heightTolerance: 140, damage: 10, knockback: 250, launch: -900, stun: 0.4)
@@ -99,6 +103,12 @@ struct Shot {
     var speed: CGFloat = 1100
     var vz: CGFloat = 0
     var gravity: CGFloat = 0
+}
+
+enum FinisherTuning {
+    /// Combo hits needed before the uppercut / ground smash / air slam become their finisher versions. Another one is earned
+    /// every `threshold` hits after that (10, 20, 30 ...), and a combo that ends starts the count again.
+    static var threshold = 10
 }
 
 /// Pure data. To add a move, add one row to `MoveTable.rows`.
@@ -130,6 +140,7 @@ struct Move {
     var projectile: Hit? = nil
     var shot = Shot()                // flight path of `projectile`
     var emphasis = Emphasis.none     // camera zoom / slow-mo when the hero performs it (bigger moment, bigger effect)
+    var finisher = false             // the powered-up version unlocked by a long combo (gold trails, big callout)
 
     func hitting(_ h: Hit...) -> Move { var m = self; m.hits = h; return m }
 
@@ -186,6 +197,19 @@ enum MoveTable {
 
     /// Third punch in a string: a big, committed overhand right.
     private static let haymaker = Move(name: "haymaker", animation: .haymaker, lock: 0.55, lunge: 120, plant: true, brake: 0.2).hitting(.haymaker).emphasized(.medium)
+
+    /// Powered-up copies keep the original's name, so every chain that follows them still works.
+    static let uppercutFinisher: Move = { var m = uppercut; m.hits = [.uppercutFinisher]; m.jumpHeight = 520; m.emphasis = .massive; m.finisher = true; return m }()
+    static let smashFinisher: Move = { var m = groundSmash; m.hits = [.smashFinisher]; m.power = 1.0; m.emphasis = .massive; m.finisher = true; return m }()
+    static let slamLandingFinisher: Move = { var m = slamLanding; m.hits = [.shockwaveFinisher]; m.finisher = true; return m }()
+
+    static func finisherVersion(of name: String) -> Move? {
+        switch name {
+        case "uppercut": return uppercutFinisher
+        case "ground smash": return smashFinisher
+        default: return nil
+        }
+    }
 
     private static let chains: [(from: String, trigger: Trigger, move: Move)] = [
         ("punch",      .tap,  Move(name: "punch 2",      animation: .jab,  lock: 0.2, lunge: 80).hitting(.jab)),
