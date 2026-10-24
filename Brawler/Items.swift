@@ -343,7 +343,7 @@ enum Items {
         leaf.position = CGPoint(x: 7, y: 14)
         [shine, stem, leaf].forEach(apple.addChild)
         return apple
-    }, apply: { $0.heal(25) })
+    }, apply: { $0.heal(25 * Difficulty.active.healing) })
 
     /// Six arrows. Only used if you're holding a bow with room in the quiver.
     static let quiver = Item(name: "quiver", make: {

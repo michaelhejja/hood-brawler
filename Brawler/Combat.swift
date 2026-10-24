@@ -975,13 +975,32 @@ final class BatKingBrain: Brain {
 }
 
 
+// MARK: - Anti-spam
+
+/// Bosses use this to punish button-mashing: enough light hits in a short window, and the boss goes immune, winds up and smashes.
+/// Strong hits (finishers, launchers, specials) never count, so mixing in real attacks keeps you safe.
+struct AntiSpam {
+    var hits = Difficulty.active == .easy ? 8 : Difficulty.active == .hard ? 5 : 6
+    var window: TimeInterval = 3
+    var cooldown: TimeInterval = 9
+    private var nextAllowed: TimeInterval = 0
+
+    func ready(_ me: Fighter, now: TimeInterval) -> Bool { now >= nextAllowed && me.lightHits(within: window) >= hits }
+
+    mutating func fire(_ me: Fighter, now: TimeInterval) {
+        nextAllowed = now + cooldown
+        me.forgetHits()
+        me.world?.floatText("COUNTER!", at: CGPoint(x: me.rig.position.x, y: me.rig.position.y + me.rig.height + 200), color: SKColor(red: 1, green: 0.4, blue: 0.2, alpha: 1))
+    }
+}
+
 // MARK: - Demon
 
 /// Mini-boss. On the ground it trades blows like a giant and throws fire without a weapon. Pressed, it blinks away like a wizard.
 /// Every so often it rises like the Bat King, rains fire on marked spots, then crashes down and is stunned: that's the opening.
 final class DemonBrain: Brain {
     let inner: EnemyBrain
-    private enum Phase { case ground, fire(TimeInterval), fadeOut(TimeInterval), fadeIn(TimeInterval), rise(TimeInterval), rain(TimeInterval, Int), slam(TimeInterval), stunned(TimeInterval) }
+    private enum Phase { case ground, counter(TimeInterval), fire(TimeInterval), fadeOut(TimeInterval), fadeIn(TimeInterval), rise(TimeInterval), rain(TimeInterval, Int), slam(TimeInterval), stunned(TimeInterval) }
     private var phase = Phase.ground
     private var started = false
     private var enraged = false
@@ -989,6 +1008,7 @@ final class DemonBrain: Brain {
     private var nextBlink: TimeInterval = 0
     private var nextAir: TimeInterval = 0
     private var pressedSince: TimeInterval?
+    private var spam = AntiSpam()
     private let hoverY: CGFloat = 110
     private(set) var debugPhase = "ground"
 
@@ -1013,6 +1033,15 @@ final class DemonBrain: Brain {
         case .ground:
             debugPhase = "ground"
             me.damageTaken = 1; me.flyHeight = 0; me.flyRate = 14
+            if spam.ready(me, now: now), dist < 230 {                   // mashing: go immune, then smash
+                spam.fire(me, now: now)
+                inner.director.release(me)
+                me.setInvulnerable(for: 0.7)
+                me.face(towardX: hx)
+                me.rig.run(.repeat(.sequence([.fadeAlpha(to: 0.55, duration: 0.08), .fadeAlpha(to: 1, duration: 0.08)]), count: 4))
+                phase = .counter(now + 0.6)
+                return MoveIntent(facing: faceRight)
+            }
             guard !me.isHurt else { return inner.think(me: me, foes: foes, now: now, dt: dt) }
             if now >= nextAir {
                 inner.director.release(me)
@@ -1043,6 +1072,20 @@ final class DemonBrain: Brain {
                 return MoveIntent(direction: CGVector(dx: 0, dy: dy > 0 ? 1 : -1), intensity: 0.6, facing: faceRight)       // line up the shot
             }
             return inner.think(me: me, foes: foes, now: now, dt: dt)
+
+        case .counter(let until):
+            debugPhase = "counter"
+            me.setInvulnerable(for: 0.2)
+            if now >= until {
+                me.rig.play(.slamLand)
+                onSlam?(me.rig.position)
+                if dist <= 220, abs(dy) <= 65, hero.rig.height < 80, hero.vulnerable {
+                    hero.receive(.giantSlam, power: 1, scale: 1, from: me, away: faceRight ? 1 : -1)
+                    onHeroHit?(hero)
+                }
+                phase = .stunned(now + 1.3)                             // the smash leaves it open
+            }
+            return MoveIntent(facing: faceRight)
 
         case .fire(let until):
             debugPhase = "fire"
@@ -1489,6 +1532,8 @@ final class ForgeKingBrain: Brain {
     private var smashDirection: CGFloat = 1
     private var smashHit = false
     private var smashStart: TimeInterval = 0
+    private var spam = AntiSpam()
+    private var counterSmash = false
     private(set) var debugPhase = "walk"
     private(set) var smashes = 0, floods = 0, braces = 0, breaks = 0
 
@@ -1527,6 +1572,18 @@ final class ForgeKingBrain: Brain {
             debugPhase = "walk"
             me.damageTaken = 1
             let hold: CGFloat = 230
+            if spam.ready(me, now: now), abs(dx) < 280 {                // mashing: immune wind-up, then a smash
+                spam.fire(me, now: now)
+                counterSmash = true
+                me.face(towardX: hero.rig.position.x)
+                smashes += 1; smashHit = false; smashDirection = faceRight ? 1 : -1; smashStart = now
+                me.setInvulnerable(for: 0.8)
+                me.rig.speed = 0.6
+                me.rig.play(.hammerSlam)
+                mark(me)
+                phase = .smash(now + 0.42 / 0.6)
+                return MoveIntent(facing: faceRight)
+            }
             let tx = hero.rig.position.x - (faceRight ? 1 : -1) * hold * 0.8, ty = hero.rig.position.y
             let vx = tx - me.rig.position.x, vy = ty - me.rig.position.y, d = max(1, hypot(vx, vy))
             if now >= nextAttackAt, abs(dx) < 330 {
@@ -1571,6 +1628,7 @@ final class ForgeKingBrain: Brain {
                 onThud?(me.rig.position)
                 let y = me.rig.position.y
                 onErupt?(y - 38, y + 38, enraged ? 0.7 : 0.9, 1.5)           // the slam leaves his lane burning
+                if counterSmash { counterSmash = false; me.damageTaken = 1.5 }          // a missed counter leaves him open
                 phase = .recover(now + (enraged ? 1.0 : 1.5))
             }
             return MoveIntent()

@@ -316,6 +316,9 @@ final class Fighter {
 
     /// Restores health. Returns false (and does nothing) when already full, so food isn't wasted.
     /// Permanently raises max health, and heals by the same amount.
+    /// Scales max and current health together (difficulty).
+    func scaleMaxHealth(by factor: CGFloat) { stats.maxHealth *= factor; health *= factor }
+
     func raiseMaxHealth(by extra: CGFloat) { stats.maxHealth += extra; health += extra }
 
     @discardableResult
@@ -697,6 +700,11 @@ final class Fighter {
         NSLog("CHILL %@ for %.1fs", name, t)
     }
 
+    /// Recent light melee hits taken (jabs and the like). Bosses read this to spot button-mashing.
+    private var lightHitTimes: [TimeInterval] = []
+    func lightHits(within window: TimeInterval) -> Int { lightHitTimes.filter { now - $0 <= window }.count }
+    func forgetHits() { lightHitTimes.removeAll() }
+
     func setInvulnerable(for t: TimeInterval) { invulnerableUntil = max(invulnerableUntil, now + t) }
 
     /// Freeze in a looping pose (a channel, a cast) until `releasePose` or until something hits the fighter.
@@ -721,6 +729,10 @@ final class Fighter {
             } else { endGuard() }                                   // hit from behind
         }
         addMeter(taken: hit.damage * power * scale)
+        if let a = attacker, a.team != team, !hit.environmental, !hit.isStrong, abs(a.rig.position.x - rig.position.x) < 240 {
+            lightHitTimes.append(now)
+            if lightHitTimes.count > 20 { lightHitTimes.removeFirst() }
+        }
         health = max(0, health - hit.damage * power * scale * damageTaken * (stats.unlaunchable ? hit.vsHeavy : 1))
         if hit.chills > 0, !dead { chill(for: hit.chills) }
         current = nil; claims = [:]; buffered = nil; advance = nil

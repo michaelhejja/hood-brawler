@@ -607,8 +607,8 @@ final class GameScene: SKScene {
     private(set) var kills = 0
     private var gameOver = false
     private var nextGiantAt: TimeInterval = 45
-    /// Survival enemies have this share of their health, applied on top of the per-minute tier boost (so every tier is 35% softer).
-    private static let survivalHealthScale: CGFloat = 0.65
+    /// Survival enemies have this share of their health, applied on top of the per-minute tier boost (so every tier is 50% softer).
+    private static let survivalHealthScale: CGFloat = 0.5
     private var nextBatAt: TimeInterval = 0
     private var nextWizardAt: TimeInterval = 0
     private var nextDemonAt: TimeInterval = 0
@@ -633,6 +633,7 @@ final class GameScene: SKScene {
     private let debugLabel = SKLabelNode(fontNamed: "Menlo-Bold")
 
     init(mode: GameMode = .campaign, levelIndex requestedLevel: Int = 0, returnDoor: Int? = nil) {
+        Difficulty.active = mode == .survival ? .medium : .selected
         self.mode = mode
         let launchArgs = ProcessInfo.processInfo.arguments
         let levelIndex = launchArgs.firstIndex(of: "-level").flatMap { Int(launchArgs[min($0 + 1, launchArgs.count - 1)]) }.map { min(max($0, 0), Levels.all.count - 1) } ?? requestedLevel
@@ -1191,7 +1192,7 @@ final class GameScene: SKScene {
         e.rig.position = CGPoint(x: x, y: y)
         e.rig.zPosition = 300 - y
         if king { e.rig.height = 200; e.flyHeight = 200 } else if bat { e.rig.height = 130; e.flyHeight = 130 }          // bats arrive already in the air
-        enemies.append(e)
+        enemies.append(e); applyDifficulty(e)
         addChild(e.rig)
         let bar = HealthBar(width: giant ? 150 : (bat ? 46 : 70))
         bar.zPosition = 9000
@@ -1912,6 +1913,21 @@ final class GameScene: SKScene {
         return e
     }
 
+    // MARK: Difficulty
+
+    /// Campaign difficulty on a freshly spawned enemy: damage, health and how fast it acts. Medium changes nothing.
+    private func applyDifficulty(_ e: Fighter) {
+        let d = Difficulty.active
+        guard d != .medium else { return }
+        e.stats.damageScale *= d.enemyDamage
+        e.scaleMaxHealth(by: d.enemyHealth)
+        let brain = (e.brain as? EnemyBrain) ?? (e.brain as? GiantBrain)?.inner ?? (e.brain as? DemonBrain)?.inner
+        guard let brain else { return }
+        func scaled(_ r: ClosedRange<Double>) -> ClosedRange<Double> { (r.lowerBound * d.aiPace)...(r.upperBound * d.aiPace) }
+        brain.traits.reaction = scaled(brain.traits.reaction)
+        brain.traits.cooldown = scaled(brain.traits.cooldown)
+    }
+
     // MARK: Demon
 
     private func spawnDemon(_ s: Spawn, center: CGFloat) -> Fighter {
@@ -1952,7 +1968,7 @@ final class GameScene: SKScene {
         e.rig.facingRight = facingRight
         e.rig.position = CGPoint(x: x, y: 110)
         e.rig.zPosition = 300 - 110
-        enemies.append(e)
+        enemies.append(e); applyDifficulty(e)
         addChild(e.rig)
         let bar = HealthBar(width: 150)
         bar.zPosition = 9000
@@ -2049,7 +2065,7 @@ final class GameScene: SKScene {
         e.rig.facingRight = facingRight
         e.rig.position = CGPoint(x: x, y: y)
         e.rig.zPosition = 300 - y
-        enemies.append(e)
+        enemies.append(e); applyDifficulty(e)
         addChild(e.rig)
         let bar = HealthBar(width: boss ? 150 : 64)
         bar.zPosition = 9000
@@ -2200,7 +2216,7 @@ final class GameScene: SKScene {
         let x = center + (s.side == .left ? -1 : 1) * (size.width / 2 + 100)
         e.rig.position = CGPoint(x: x, y: 110)
         e.rig.zPosition = 300 - 110
-        enemies.append(e)
+        enemies.append(e); applyDifficulty(e)
         addChild(e.rig)
         let bar = HealthBar(width: 100)
         bar.zPosition = 9000
@@ -2254,7 +2270,7 @@ final class GameScene: SKScene {
         let x = center + (s.side == .left ? -1 : 1) * (size.width / 2 + 160)
         e.rig.position = CGPoint(x: x, y: 110)
         e.rig.zPosition = 300 - 110
-        enemies.append(e)
+        enemies.append(e); applyDifficulty(e)
         addChild(e.rig)
         let bar = HealthBar(width: 130)
         bar.zPosition = 9000
@@ -2305,7 +2321,7 @@ final class GameScene: SKScene {
         let x = center + (s.side == .left ? -1 : 1) * (size.width / 2 + 90)
         e.rig.position = CGPoint(x: x, y: 110)
         e.rig.zPosition = 300 - 110
-        enemies.append(e)
+        enemies.append(e); applyDifficulty(e)
         addChild(e.rig)
         let bar = HealthBar(width: 90)
         bar.zPosition = 9000

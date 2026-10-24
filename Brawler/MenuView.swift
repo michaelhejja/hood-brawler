@@ -5,13 +5,35 @@ enum Game {
 }
 
 enum GameMode: Equatable { case campaign, survival, hub }
+
+/// Campaign difficulty, chosen on the menu. Medium is the game as designed. Survival always plays as Medium (it has its own scaling).
+enum Difficulty: Int, CaseIterable {
+    case easy, medium, hard
+    var title: String { ["EASY", "MEDIUM", "HARD"][rawValue] }
+    var enemyDamage: CGFloat { [0.7, 1, 1.3][rawValue] }
+    var enemyHealth: CGFloat { [0.8, 1, 1.2][rawValue] }
+    var healing: CGFloat     { [1.3, 1, 0.7][rawValue] }
+    var aiPace: Double       { [1.25, 1, 0.8][rawValue] }       // scales enemy reaction and cooldown times: below 1 is faster
+
+    /// What the running scene is using (set when a scene starts).
+    static var active = Difficulty.medium
+    /// The menu choice (`-difficulty N` on the command line overrides it).
+    static var selected: Difficulty {
+        get {
+            let a = ProcessInfo.processInfo.arguments
+            if let i = a.firstIndex(of: "-difficulty"), i + 1 < a.count, let n = Int(a[i + 1]), let d = Difficulty(rawValue: n) { return d }
+            return Difficulty(rawValue: UserDefaults.standard.object(forKey: "difficulty") as? Int ?? 1) ?? .medium
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "difficulty") }
+    }
+}
 struct GameResult { let kills: Int; let won: Bool }
 
 struct MenuView: View {
     let onPlay: () -> Void
     let onSurvival: () -> Void
-    let onLab: () -> Void
     @State private var hero = HeroKind.selected
+    @State private var difficulty = Difficulty.selected
 
     var body: some View {
         ZStack {
@@ -37,8 +59,11 @@ struct MenuView: View {
                         HeroKind.selected = hero
                     }
                     .buttonStyle(ChunkyButtonStyle(color: .blue))
-                    Button("CHARACTER LAB", action: onLab)
-                        .buttonStyle(ChunkyButtonStyle(color: .green))
+                    Button("DIFFICULTY: \(difficulty.title)") {
+                        difficulty = Difficulty(rawValue: (difficulty.rawValue + 1) % Difficulty.allCases.count) ?? .medium
+                        Difficulty.selected = difficulty
+                    }
+                    .buttonStyle(ChunkyButtonStyle(color: [Color.green, Color.yellow, Color.purple][difficulty.rawValue]))
                 }
                 .frame(width: 260)
             }

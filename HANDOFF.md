@@ -5,7 +5,7 @@ Repo: github.com/michaelhejja/hood-brawler
 Controls reference: `CONTROLS.md`
 
 ## Latest build
-Version 0.2, build 5 (see `git log` for the commit). Previous builds: 4 `50d7f7a`, 3 `8ee7a87`.
+Version 0.2, build 6 (see `git log` for the commit). Previous builds: 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
 Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Art
@@ -29,6 +29,16 @@ Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 - Debug launch flags (`-combotest`, `-finishertest`, `-bombgoblin` and others) are defined in `GameScene.swift`.
 
 ## Survival mode
-- Every survival enemy has 65% of its health (`survivalHealthScale` in `GameScene.swift`), on top of the per-minute tier boost.
+- Every survival enemy has 50% of its health (`survivalHealthScale` in `GameScene.swift`), on top of the per-minute tier boost.
 - Frost wizards join at 3:00 (cap rises to 3). The Demon is a giant-style mini-boss from 5:00, roughly every 75-100 seconds, never alongside a giant, and drops a permanent buff.
-- Test flags: `-earlywizards`, `-earlydemon`. All timings and the 0.65 scale are untuned guesses.
+- Test flags: `-earlywizards`, `-earlydemon`. All timings and the 0.5 scale are untuned guesses.
+
+## Campaign difficulty
+- Menu button cycles Easy / Medium / Hard (`Difficulty` in `MenuView.swift`, saved in UserDefaults; `-difficulty 0|1|2` overrides). Medium is the game as designed; survival always plays as Medium.
+- Scales enemy damage, enemy health, food healing, and the reaction/cooldown times of standard melee brains. Applied in `GameScene.applyDifficulty`. Multipliers are untuned guesses.
+- The Character Lab button was replaced by the difficulty button. The lab is still reachable with `-lab`.
+
+## Boss anti-spam
+- `AntiSpam` in `Combat.swift`: a boss that takes enough light melee hits in a short window (6 in 3s; 8 on Easy, 5 on Hard) goes immune, winds up and smashes. 9s cooldown.
+- Wired into `DemonBrain` and `ForgeKingBrain` only. Not the giant (has its ambush), necromancer, doppelganger, Bat King or Archmage.
+- Survival health scale is now 0.5 (was 0.65).

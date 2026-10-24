@@ -18,7 +18,7 @@ struct RootView: View {
         ZStack {
             switch screen {
             case .menu:
-                MenuView(onPlay: { screen = .game(.hub) }, onSurvival: { screen = .game(.survival) }, onLab: { screen = .lab })
+                MenuView(onPlay: { screen = .game(.hub) }, onSurvival: { screen = .game(.survival) })
                     .transition(.opacity)
             case .game(let mode):
                 GameView(mode: mode, onBack: { screen = .menu })
