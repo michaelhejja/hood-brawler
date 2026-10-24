@@ -5,7 +5,7 @@ Repo: github.com/michaelhejja/hood-brawler
 Controls reference: `CONTROLS.md`
 
 ## Latest build
-Version 0.2, build 7 (see `git log` for the commit). Previous builds: 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
+Version 0.2, build 8 (see `git log` for the commit). Previous builds: 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
 Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Art
@@ -48,3 +48,7 @@ Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 - Names, color and tuning are per hero in `Skin.swift` (`HeroKind.finisherNames`, `.color`, `.finisherStyle`). Cloak: Skybreaker / Earthshatter / Knockout / Meteor (yellow). Ember: Air Flurry / Dance Shoes / Mega Slap / Reckoning (hot pink, lighter hits). Bully: Launched / Pulverized / Outta My Way / Anvil Drop (light blue, wider and heavier).
 - `FinisherStyle` multipliers (damage, reach, knockback, launch, stun) are first guesses. Cloak is the 1x baseline.
 - Hub and level portal titles are larger (32pt) for phone readability.
+
+## Skeleton break-apart
+- A dying skeleton (30%) or giant skeleton (50%) can break into its parts, which fly off, bounce and fade. `HumanoidRig.shatter` does it, and `boneBreakChance` in `GameScene.swift` sets the odds. `-bonebreak` forces it.
+- Not yet seen running. Check skeletons facing left (mirroring of the loose parts) and giants (throw speed).

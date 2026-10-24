@@ -84,6 +84,40 @@ final class HumanoidRig: SKNode {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Breaks the character into its parts: each is copied into `world`, flung in a random direction, tumbles, bounces on the ground and fades.
+    /// The rig itself is hidden. Leaves nothing behind that the fighter has to clean up.
+    func shatter(in world: SKNode, groundY: CGFloat) {
+        let flip: CGFloat = facingRight ? 1 : -1
+        for part in [legBack, legFront, torso, armOff, head, armWeapon] {
+            guard let piece = part.copy() as? SKNode else { continue }
+            piece.removeAllActions()
+            piece.position = world.convert(.zero, from: part)
+            piece.zRotation = flip * (part.zRotation + body.zRotation)
+            piece.xScale = part.xScale * xScale
+            piece.yScale = part.yScale * yScale
+            piece.zPosition = zPosition + part.zPosition + 1
+            world.addChild(piece)
+
+            var vx = CGFloat.random(in: -330...330), vy = CGFloat.random(in: 280...640)
+            var spin = CGFloat.random(in: -13...13)
+            let floorY = groundY + .random(in: -8...8)
+            var last: CGFloat = 0
+            let fall = SKAction.customAction(withDuration: 2.0) { node, t in
+                let dt = min(t - last, 1 / 30); last = t
+                vy -= 1700 * dt
+                node.position.x += vx * dt; node.position.y += vy * dt
+                node.zRotation += spin * dt
+                if node.position.y <= floorY, vy < 0 {
+                    node.position.y = floorY
+                    vy = -vy * 0.35; vx *= 0.6; spin *= 0.55
+                    if abs(vy) < 60 { vy = 0; vx *= 0.3; spin = 0 }
+                }
+            }
+            piece.run(.sequence([fall, .wait(forDuration: 0.7), .fadeOut(withDuration: 0.4), .removeFromParent()]))
+        }
+        isHidden = true
+    }
+
     /// Swap what's in the weapon hand (nil = empty hand).
     func setWeapon(_ w: Weapon?) {
         sword.removeFromParent()

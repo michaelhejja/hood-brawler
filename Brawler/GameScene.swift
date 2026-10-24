@@ -609,6 +609,8 @@ final class GameScene: SKScene {
     private var nextGiantAt: TimeInterval = 45
     /// Survival enemies have this share of their health, applied on top of the per-minute tier boost (so every tier is 50% softer).
     private static let survivalHealthScale: CGFloat = 0.5
+    /// Chance a dying skeleton breaks apart instead of just falling. `-bonebreak` forces it.
+    private static let boneBreakChance: [String: Double] = ["skeleton": 0.3, "giant skeleton": 0.5]
     private var nextBatAt: TimeInterval = 0
     private var nextWizardAt: TimeInterval = 0
     private var nextDemonAt: TimeInterval = 0
@@ -1570,6 +1572,11 @@ final class GameScene: SKScene {
         for e in enemies where e.dead && !e.lootDropped {
             e.lootDropped = true
             kills += 1; updateKills()
+            // Skeletons sometimes just fall apart: every bone flies off on its own
+            if let chance = Self.boneBreakChance[e.name], args.contains("-bonebreak") || Double.random(in: 0...1) < chance, let world = e.rig.parent {
+                poof(at: CGPoint(x: e.rig.position.x, y: e.rig.position.y + e.rig.height + 30))
+                e.rig.shatter(in: world, groundY: e.rig.position.y)
+            }
             if mode == .survival, e.stats.size > 1, !e.stats.flies || e.brain is DemonBrain {      // a giant or a Demon always drops a permanent buff
                 pickups.launch(.item(Buff.random(for: hero).item), from: e.rig.position, height: 50, vx: .random(in: -40...40), vz: 700)
             }
