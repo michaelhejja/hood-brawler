@@ -19,6 +19,9 @@ Swipes fire the moment they pass the distance threshold, taps on release.
 
 Back-swipe while standing is intentionally unassigned: reserved for future special weapons/abilities.
 
+## Quick rise
+Knocked down: swipe up (after a 0.3s beat on the floor) gets you up at once, with 0.35s of invulnerability. Swipe back gets up and goes straight into the dodge roll. About 6% of enemy knockdowns get up early on their own. Tuning is in `QuickRise` (Fighter.swift).
+
 ## Combos (timing based, generous windows to start)
 - tap, tap, swipe up -> punch, punch, uppercut -> swipe down (airborne)
 - run, swipe forward, swipe down -> dash attack, then overhead ground smash (knockback)

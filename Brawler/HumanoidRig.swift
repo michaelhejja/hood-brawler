@@ -619,6 +619,15 @@ final class HumanoidRig: SKNode {
         track(legBack, [(0.3, 0.14)])
     }
 
+    /// Pops up off the floor in a hurry: starts from whatever lying pose the knockdown left, swings upright, and squashes on the way.
+    func riseFast() {
+        let angle = body.zRotation, y = body.position.y
+        resetPose()
+        body.zRotation = angle; body.position.y = y
+        track(body, [(0, 0.16)])
+        body.run(.sequence([pose(y: restY, sx: 1.06, sy: 0.94, d: 0.12, .easeOut), pose(y: restY, d: 0.1)]))
+    }
+
     /// Ground-impact dust (landings, knockdowns).
     func dust() { puff() }
 
@@ -802,6 +811,7 @@ final class HumanoidRig: SKNode {
 
     /// 1: a face-plant, arms stretched out ahead. 2: slumps into a sit, legs out in front, head down.
     private func knockdownVariant(_ v: Int) {
+        if v == 3 { kneelAndTopple(); return }
         if v == 1 {
             track(body, [(-1.5, 0.14)])
             body.run(pose(y: restY * 0.7, d: 0.14, .easeOut))
@@ -821,6 +831,21 @@ final class HumanoidRig: SKNode {
             track(legFront, [(1.45, 0.16)])
             track(legBack, [(1.1, 0.16)])
         }
+    }
+
+    /// A death: the legs give out and the torso drops to the floor, a beat of swaying with the head hanging, then it pitches forward onto its face.
+    /// It ends in the face-plant pose (variant 1), so the corpse looks like any other.
+    private func kneelAndTopple() {
+        let drop = 0.28, hold = 0.4, topple = 0.42
+        track(body,      [(-0.1, drop), (-0.22, hold), (-1.5, topple)])
+        body.run(.sequence([pose(y: restY * 0.5, sx: 1.04, sy: 0.92, d: drop, .easeIn), .wait(forDuration: hold), pose(y: restY * 0.7, d: topple, .easeIn)]))
+        track(head,      [(-0.35, drop), (-0.5, hold), (-0.25, topple)])
+        track(armWeapon, [(0.4, drop), (0.5, hold), (3.0, topple * 0.5), (2.7, topple * 0.5)])
+        track(armOff,    [(0.25, drop), (0.35, hold), (2.8, topple * 0.5), (2.5, topple * 0.5)])
+        track(sword,     [(nil, drop + hold), (swordRest + 0.12, topple * 0.5), (swordRest + 0.42, topple * 0.5)])
+        track(legFront,  [(-0.9, drop), (nil, hold), (-0.4, topple)])
+        track(legBack,   [(-0.7, drop), (nil, hold), (-0.2, topple)])
+        run(.sequence([.wait(forDuration: drop + hold + topple * 0.9), .run { [weak self] in self?.dust() }]), withKey: "kneelDust")
     }
 
     // MARK: Action helpers

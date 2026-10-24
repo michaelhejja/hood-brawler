@@ -1,0 +1,153 @@
+{
+  "canvas": [
+    2560,
+    1640
+  ],
+  "meta": true,
+  "cells": {
+    "spear": {
+      "x": 40,
+      "y": 40,
+      "w": 260,
+      "h": 1200,
+      "pivot": [
+        130,
+        1010
+      ],
+      "tip": 110,
+      "note": "SPEAR - tip up"
+    },
+    "staff": {
+      "x": 340,
+      "y": 40,
+      "w": 240,
+      "h": 1140,
+      "pivot": [
+        120,
+        900
+      ],
+      "tip": 98,
+      "note": "STAFF - orb at the very top (the game adds the glow)"
+    },
+    "ice_staff": {
+      "x": 620,
+      "y": 40,
+      "w": 240,
+      "h": 1140,
+      "pivot": [
+        120,
+        900
+      ],
+      "tip": 104,
+      "note": "ICE STAFF - crystal at the very top (the game adds the glow)"
+    },
+    "hammer": {
+      "x": 940,
+      "y": 40,
+      "w": 360,
+      "h": 820,
+      "pivot": [
+        180,
+        700
+      ],
+      "tip": 82,
+      "note": "HAMMER - head up"
+    },
+    "shield": {
+      "x": 1340,
+      "y": 40,
+      "w": 300,
+      "h": 780,
+      "pivot": [
+        150,
+        570
+      ],
+      "tip": 65,
+      "note": "SHIELD - face toward you, cross in the middle (the game adds the guard glow)"
+    },
+    "bow": {
+      "x": 1680,
+      "y": 40,
+      "w": 360,
+      "h": 700,
+      "pivot": [
+        110,
+        350
+      ],
+      "tip": 32,
+      "note": "BOW - belly bulges RIGHT, cross on the string line, NO string (the game adds it)"
+    },
+    "axe": {
+      "x": 2080,
+      "y": 40,
+      "w": 340,
+      "h": 700,
+      "pivot": [
+        110,
+        580
+      ],
+      "tip": 58,
+      "note": "AXE - blade on the RIGHT"
+    },
+    "sword": {
+      "x": 940,
+      "y": 930,
+      "w": 280,
+      "h": 640,
+      "pivot": [
+        140,
+        520
+      ],
+      "tip": 56,
+      "note": "SWORD"
+    },
+    "light_blade": {
+      "x": 1260,
+      "y": 930,
+      "w": 280,
+      "h": 640,
+      "pivot": [
+        140,
+        520
+      ],
+      "tip": 60,
+      "note": "LIGHT BLADE - no glow needed (the game adds it)"
+    },
+    "rusty_blade": {
+      "x": 1580,
+      "y": 930,
+      "w": 260,
+      "h": 640,
+      "pivot": [
+        130,
+        520
+      ],
+      "tip": 42,
+      "note": "RUSTY BLADE"
+    },
+    "rock": {
+      "x": 1880,
+      "y": 930,
+      "w": 300,
+      "h": 300,
+      "pivot": [
+        150,
+        150
+      ],
+      "tip": 10,
+      "note": "ROCK - cross in the middle"
+    },
+    "bomb": {
+      "x": 2220,
+      "y": 930,
+      "w": 300,
+      "h": 400,
+      "pivot": [
+        150,
+        280
+      ],
+      "tip": 28,
+      "note": "BOMB - fuse up, no spark (the game adds it at the very top)"
+    }
+  }
+}

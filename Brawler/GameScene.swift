@@ -64,13 +64,15 @@ struct Lamp {
 }
 
 struct Prop {
-    enum Kind { case crate(PickupKind?), altar(PickupKind?), bush(withered: Bool), pickup(PickupKind), door(Int), areaDoor(area: Int, arrival: String, name: String) }
+    enum Kind { case crate(PickupKind?), altar(PickupKind?), scenery(Crate.Style), pickup(PickupKind), door(Int), areaDoor(area: Int, arrival: String, name: String) }
     var kind: Kind
     var x: CGFloat
     var lane: CGFloat
     static func crate(_ x: CGFloat, _ lane: CGFloat, holding: PickupKind? = nil) -> Prop { Prop(kind: .crate(holding), x: x, lane: lane) }
     /// A shrub: breaks in one hit, can be walked through. Withered ones suit the graveyard.
-    static func bush(_ x: CGFloat, _ lane: CGFloat, withered: Bool = false) -> Prop { Prop(kind: .bush(withered: withered), x: x, lane: lane) }
+    static func bush(_ x: CGFloat, _ lane: CGFloat, withered: Bool = false) -> Prop { Prop(kind: .scenery(withered ? .witheredBush : .bush), x: x, lane: lane) }
+    /// Any smashable scenery: `.bush`, `.witheredBush`, `.frozenBush`, `.crystal` or `.charredBush`.
+    static func scenery(_ style: Crate.Style, _ x: CGFloat, _ lane: CGFloat) -> Prop { Prop(kind: .scenery(style), x: x, lane: lane) }
     /// A stack of stones with an idol on top. Breaks like a crate, but tougher.
     static func altar(_ x: CGFloat, _ lane: CGFloat, holding: PickupKind? = nil) -> Prop { Prop(kind: .altar(holding), x: x, lane: lane) }
     static func pickup(_ kind: PickupKind, _ x: CGFloat, _ lane: CGFloat) -> Prop { Prop(kind: .pickup(kind), x: x, lane: lane) }
@@ -82,6 +84,7 @@ struct Prop {
 }
 
 /// A line of dialogue from the world itself: appears ahead of the hero when he passes `x`.
+/// A line the hero says when they walk past `x`. The bubble follows the hero (`lane` is no longer used).
 struct Say {
     var x: CGFloat
     var text: String
@@ -109,6 +112,11 @@ enum Levels {
 
     /// Scatters bushes along a stretch of a level, in repeatable positions, keeping clear of everything already placed.
     static func withBushes(_ props: [Prop], over range: ClosedRange<CGFloat>, every: CGFloat, seed: Int, withered: Bool = false) -> [Prop] {
+        withScenery(props, over: range, every: every, seed: seed, style: withered ? .witheredBush : .bush)
+    }
+
+    /// The same scatter for any scenery: pick the style to match the level's theme (forest `.bush`, graveyard `.witheredBush`, snow `.frozenBush`, cave `.crystal`, ashlands `.charredBush`).
+    static func withScenery(_ props: [Prop], over range: ClosedRange<CGFloat>, every: CGFloat, seed: Int, style: Crate.Style) -> [Prop] {
         var state = UInt64(truncatingIfNeeded: seed) &* 6364136223846793005 &+ 1442695040888963407
         func next() -> CGFloat {
             state = state &* 6364136223846793005 &+ 1442695040888963407
@@ -118,7 +126,7 @@ enum Levels {
         var x = range.lowerBound
         while x < range.upperBound {
             let px = x + next() * every * 0.6, lane = 30 + next() * 140
-            if !props.contains(where: { abs($0.x - px) < 110 }) { out.append(.bush(px, lane, withered: withered)) }
+            if !props.contains(where: { abs($0.x - px) < 110 }) { out.append(.scenery(style, px, lane)) }
             x += every * (0.7 + next() * 0.6)
         }
         return out
@@ -201,11 +209,11 @@ enum Levels {
     /// Gravewood's cave: supplies, and a fight that has to be won to feel safe taking them.
     static let graveCave = LevelData(
         name: "Cave", width: 1900, heroStart: 320,
-        props: [
+        props: Levels.withScenery([
             .crate(600, 70, holding: .weapon(Weapons.axe)), .crate(600, 160),
             .crate(1150, 100, holding: .item(Items.food)), .crate(1350, 70, holding: .weapon(Weapons.spear)),
             .pickup(.weapon(Weapons.rock), 1500, 120), .pickup(.item(Items.quiver), 1650, 160),
-        ],
+        ], over: 380...1800, every: 260, seed: 61, style: .crystal),
         says: [Say(x: 450, text: "Bones everywhere...")],
         encounters: [
             Encounter(triggerX: 850, waves: [
@@ -221,13 +229,13 @@ enum Levels {
     /// Areas: 0 = foothills and switchback, 1 = the cave passage (detour with supplies), 2 = the ridge and the summit.
     static let boneMountain = LevelData(
         name: "Bone Mountain", width: 2900, heroStart: 300,
-        props: [
+        props: Levels.withScenery([
             .pickup(.weapon(Weapons.rock), 520, 80), .crate(800, 100, holding: .item(Items.food)),
             .crate(1900, 70, holding: .weapon(Weapons.bow)), .crate(2050, 150, holding: .item(Items.quiver)),
             .crate(1500, 150, holding: .weapon(Weapons.shield)), .crate(1700, 70, holding: .weapon(Weapons.hammer)),
             .crate(2300, 100),
             .areaDoor(1, "in", 2740, 110, "Cave"),
-        ],
+        ], over: 420...2600, every: 300, seed: 71, style: .crystal),
         placed: [Placed(x: 1000, lane: 110, tier: 0.4)],
         says: [Say(x: 420, text: "Something's up there..."), Say(x: 1250, text: "Stay low. Strike high.")],
         encounters: [
@@ -244,10 +252,10 @@ enum Levels {
     /// Bone Mountain's cave: a cramped fight with a spear or axe waiting on the other side of it.
     static let boneCave = LevelData(
         name: "Cave", width: 1700, heroStart: 320,
-        props: [
+        props: Levels.withScenery([
             .crate(560, 70, holding: .weapon(Weapons.spear)), .crate(700, 160, holding: .item(Items.food)),
             .crate(1150, 100, holding: .weapon(Weapons.axe)), .pickup(.item(Items.food), 1400, 150),
-        ],
+        ], over: 380...1600, every: 260, seed: 67, style: .crystal),
         says: [Say(x: 450, text: "Wings in the dark...")],
         encounters: [
             Encounter(triggerX: 800, waves: [
@@ -261,11 +269,11 @@ enum Levels {
     /// Bone Mountain, past the cave: archers and bats, a giant, food, then the Bat King at the summit.
     static let boneRidge = LevelData(
         name: "Bone Mountain", width: 3400, heroStart: 300,
-        props: [
+        props: Levels.withScenery([
             .crate(450, 100, holding: .item(Items.food)), .pickup(.weapon(Weapons.rock), 600, 60),
             .crate(1500, 80, holding: .item(Items.quiver)), .crate(1500, 160, holding: .item(Items.food)),
             .crate(2100, 110, holding: .item(Items.food)),
-        ],
+        ], over: 420...3300, every: 300, seed: 73, style: .crystal),
         says: [Say(x: 2000, text: "The summit. Something waits.")],
         encounters: [
             // Ridge: one archer with bats, then a giant with bats behind it.
@@ -417,14 +425,14 @@ enum Levels {
     /// Level 7. Frost wizards teleport, keep their distance and chill you with ice. Pairs, then the Frost Archmage.
     static let chillOut = LevelData(
         name: "Chill Out", width: 6600, heroStart: 300,
-        props: Levels.withBushes([
+        props: Levels.withScenery([
             .crate(700, 90, holding: .item(Items.food)), .crate(1000, 150, holding: .weapon(Weapons.shield)),
             .crate(1900, 80, holding: .item(Items.food)), .pickup(.weapon(Weapons.spear), 2200, 130),
             .crate(2600, 110, holding: .weapon(Weapons.bow)), .crate(2750, 60, holding: .item(Items.quiver)), .crate(2900, 130, holding: .weapon(Weapons.bomb)),
             .crate(3500, 90, holding: .item(Items.food)), .crate(3650, 150, holding: .item(Items.food)),
             .crate(4400, 100, holding: .item(Items.food)), .pickup(.weapon(Weapons.axe), 4600, 80),
             .crate(5300, 90, holding: .item(Items.food)), .crate(5450, 150, holding: .item(Items.food)),
-        ], over: 450...6200, every: 300, seed: 53, withered: true),
+        ], over: 450...6200, every: 300, seed: 53, style: .frozenBush),
         placed: [Placed(x: 1200, lane: 100, tier: 0.6)],
         says: [Say(x: 400, text: "It's... cold."), Say(x: 2400, text: "Something is watching from the snow."),
                Say(x: 4100, text: "They keep blinking away!"), Say(x: 5700, text: "The air itself freezes.")],
@@ -456,12 +464,12 @@ enum Levels {
     /// Borrows the Foundry's look until the Ashlands get their own art (`theme: .forge`), and has no lava bands so the Demon's fire is the only thing to read.
     static let ashlands = LevelData(
         name: "The Ashlands", width: 3400, heroStart: 300,
-        props: [
+        props: Levels.withScenery([
             .crate(600, 100, holding: .item(Items.food)),
             .crate(1250, 70, holding: .weapon(Weapons.shield)), .crate(1400, 150, holding: .item(Items.food)),
             .crate(2000, 100, holding: .item(Items.food)), .crate(2150, 60, holding: .weapon(Weapons.bow)),
             .crate(2650, 90, holding: .item(Items.food)), .crate(2800, 150, holding: .item(Items.food)),
-        ],
+        ], over: 400...3300, every: 280, seed: 79, style: .charredBush),
         placed: [Placed(x: 1000, lane: 105, tier: 0.6)],
         says: [Say(x: 400, text: "The air is burning."), Say(x: 1700, text: "Something huge is breathing ahead."), Say(x: 2500, text: "Stay out of the red.")],
         encounters: [
@@ -507,6 +515,14 @@ enum Levels {
     static let bushArena = LevelData(
         name: "Bush Test", width: 1334, heroStart: 300,
         props: [.bush(500, 60), .bush(570, 110), .bush(650, 160), .bush(780, 80), .bush(870, 130), .bush(970, 100, withered: true), .bush(1050, 150, withered: true), .crate(1180, 100)],
+        theme: .forest)
+
+    /// One of each kind of scenery, side by side: bush, withered, frozen, crystal, charred. Launch with `-scenery`; add `-bushtest` for a hero who smashes them.
+    static let sceneryArena = LevelData(
+        name: "Scenery Test", width: 1334, heroStart: 300,
+        props: [.bush(480, 70), .bush(520, 150), .bush(660, 70, withered: true), .bush(700, 150, withered: true),
+                .scenery(.frozenBush, 840, 70), .scenery(.frozenBush, 880, 150), .scenery(.crystal, 1020, 70), .scenery(.crystal, 1060, 150),
+                .scenery(.charredBush, 1200, 70), .scenery(.charredBush, 1240, 150)],
         theme: .forest)
 
     /// Two bats and a skeleton in a one-screen arena. Launch with `-bats`.
@@ -609,8 +625,6 @@ final class GameScene: SKScene {
     private var nextGiantAt: TimeInterval = 45
     /// Survival enemies have this share of their health, applied on top of the per-minute tier boost (so every tier is 50% softer).
     private static let survivalHealthScale: CGFloat = 0.5
-    /// Chance a dying skeleton breaks apart instead of just falling. `-bonebreak` forces it.
-    private static let boneBreakChance: [String: Double] = ["skeleton": 0.3, "giant skeleton": 0.5]
     private var nextBatAt: TimeInterval = 0
     private var nextWizardAt: TimeInterval = 0
     private var nextDemonAt: TimeInterval = 0
@@ -645,7 +659,7 @@ final class GameScene: SKScene {
         backgroundColor = SKColor(red: 0.55, green: 0.78, blue: 0.85, alpha: 1)
         if mode == .survival { level = LevelConfig(minX: 0, maxX: 3600); laneMinY = -260 }      // a closed arena (1.5x wider, 1.5x deeper), hero dead center
         else {
-            let d = mode == .hub ? Levels.hub : (args.contains("-demon") ? Levels.demonArena : args.contains("-archmage") ? Levels.archmageArena : args.contains("-wizard") ? Levels.wizardArena : args.contains("-bushes") ? Levels.bushArena : args.contains("-wraith") ? Levels.wraithArena : args.contains("-dark") ? Levels.darkArena : args.contains("-forgeking") ? Levels.forgeKingArena : args.contains("-foundry") ? Levels.foundryArena : args.contains("-doppel") ? Levels.doppelArena : args.contains("-herotest") ? Levels.heroArena : args.contains("-hammers") ? Levels.hammerArena : args.contains("-shields") ? Levels.shieldFoeArena : args.contains("-goblins") ? Levels.goblinArena : args.contains("-shieldtest") ? Levels.shieldArena : args.contains("-giant") ? Levels.giantArena : args.contains("-batboss") ? Levels.batBossArena : args.contains("-bitetest") ? Levels.biteArena : args.contains("-bats") ? Levels.batArena : args.contains("-necro") ? Levels.necroArena : args.contains("-wyrm") ? Levels.wyrmArena : ((testMode || args.contains("-sandbox")) ? Levels.sandbox : Levels.all[levelIndex]))
+            let d = mode == .hub ? Levels.hub : (args.contains("-demon") ? Levels.demonArena : args.contains("-archmage") ? Levels.archmageArena : args.contains("-wizard") ? Levels.wizardArena : args.contains("-scenery") ? Levels.sceneryArena : args.contains("-bushes") ? Levels.bushArena : args.contains("-wraith") ? Levels.wraithArena : args.contains("-dark") ? Levels.darkArena : args.contains("-forgeking") ? Levels.forgeKingArena : args.contains("-foundry") ? Levels.foundryArena : args.contains("-doppel") ? Levels.doppelArena : args.contains("-herotest") ? Levels.heroArena : args.contains("-hammers") ? Levels.hammerArena : args.contains("-shields") ? Levels.shieldFoeArena : args.contains("-goblins") ? Levels.goblinArena : args.contains("-shieldtest") ? Levels.shieldArena : args.contains("-giant") ? Levels.giantArena : args.contains("-batboss") ? Levels.batBossArena : args.contains("-bitetest") ? Levels.biteArena : args.contains("-bats") ? Levels.batArena : args.contains("-necro") ? Levels.necroArena : args.contains("-wyrm") ? Levels.wyrmArena : ((testMode || args.contains("-sandbox")) ? Levels.sandbox : Levels.all[levelIndex]))
             levelData = d; fullLevel = d
             level = LevelConfig(minX: 0, maxX: d.width)
         }
@@ -816,10 +830,10 @@ final class GameScene: SKScene {
             hero.setInvulnerable(for: 9999)
             run(.repeatForever(.sequence([.wait(forDuration: 1), .run { [weak self] in
                 guard let self else { return }
-                NSLog("BUSHTEST t=%.0f bushes=%d crates=%d meter=%.3f hero x%.0f", self.gameTime, self.crates.crates.filter { $0.isBush }.count, self.crates.crates.filter { !$0.isBush }.count, self.hero.meter, self.hero.rig.position.x)
+                NSLog("BUSHTEST t=%.0f bushes=%d crates=%d meter=%.3f hero x%.0f", self.gameTime, self.crates.crates.filter { $0.isScenery }.count, self.crates.crates.filter { !$0.isScenery }.count, self.hero.meter, self.hero.rig.position.x)
             }])))
             run(.sequence([.wait(forDuration: 2.5), .repeatForever(.sequence([.run { [weak self] in
-                guard let self, let b = self.crates.crates.first(where: { $0.isBush }) else { return }
+                guard let self, let b = self.crates.crates.first(where: { $0.isScenery }) else { return }
                 self.hero.rig.position = CGPoint(x: b.position.x - 70, y: b.position.y); self.hero.rig.facingRight = true
                 self.hero.handle(.tap)
             }, .wait(forDuration: 0.6)]))]))
@@ -1573,7 +1587,7 @@ final class GameScene: SKScene {
             e.lootDropped = true
             kills += 1; updateKills()
             // Skeletons sometimes just fall apart: every bone flies off on its own
-            if let chance = Self.boneBreakChance[e.name], args.contains("-bonebreak") || Double.random(in: 0...1) < chance, let world = e.rig.parent {
+            if e.deathStyle == .breakApart, let world = e.rig.parent {
                 poof(at: CGPoint(x: e.rig.position.x, y: e.rig.position.y + e.rig.height + 30))
                 e.rig.shatter(in: world, groundY: e.rig.position.y)
             }
@@ -1651,8 +1665,8 @@ final class GameScene: SKScene {
                     if m?.props.contains(i) ?? true { crates.place(x: p.x, lane: p.lane, contents: contents).tag = i }
                 case .altar(let contents):
                     if m?.props.contains(i) ?? true { crates.place(x: p.x, lane: p.lane, contents: contents, altar: true).tag = i }
-                case .bush(let withered):
-                    if m?.props.contains(i) ?? true { crates.place(x: p.x, lane: p.lane, style: withered ? .witheredBush : .bush, scale: .random(in: 0.85...1.3)).tag = i }
+                case .scenery(let style):
+                    if m?.props.contains(i) ?? true { crates.place(x: p.x, lane: p.lane, style: style, scale: .random(in: 0.85...1.3)).tag = i }
                 case .pickup(let kind):
                     if m?.props.contains(i) ?? true { pickups.place(kind, at: CGPoint(x: p.x, y: p.lane)).tag = i }
                 case .door(let level):
@@ -1732,7 +1746,7 @@ final class GameScene: SKScene {
         if let gx = goUntilX, hero.rig.position.x >= gx { hideGo() }
         while nextSay < d.says.count, hero.rig.position.x >= d.says[nextSay].x {
             let s = d.says[nextSay]; nextSay += 1
-            showBubble(s.text, at: CGPoint(x: s.x + 260, y: s.lane + 80))
+            showBubble(s.text, over: hero)                                   // the hero says it: the bubble follows them
         }
 
         if activeEncounter == nil, nextEncounter < d.encounters.count, hero.rig.position.x >= d.encounters[nextEncounter].triggerX {
@@ -2377,7 +2391,7 @@ final class GameScene: SKScene {
             b.onHeroHit = { [weak self] h in self?.spawnImpact(at: CGPoint(x: h.rig.position.x, y: h.rig.position.y + h.rig.height + 60), damage: Hit.batSwoop.damage) }
             b.onEnrage = { [weak self] in
                 self?.bossSlam(1)
-                self?.showBubble("SCREEEEE!", at: CGPoint(x: self?.batKing?.rig.position.x ?? 600, y: 560), duration: 2)
+                if let king = self?.batKing { self?.showBubble("SCREEEEE!", over: king, duration: 2) }
             }
         }
         bossName.text = "THE BAT KING"
@@ -2443,7 +2457,7 @@ final class GameScene: SKScene {
             activeEncounter?.foes.append(f)
         }
         camShake = max(camShake, 5)
-        showBubble("SCREEEECH!", at: CGPoint(x: batKing?.rig.position.x ?? 600, y: 560), duration: 1.6)
+        if let king = batKing { showBubble("SCREEEECH!", over: king, duration: 1.6) }
     }
 
     /// The King falls and his bats go with him.

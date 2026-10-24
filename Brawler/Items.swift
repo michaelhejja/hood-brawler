@@ -11,7 +11,8 @@ struct Weapon {
     var consumable = false          // vanishes from the hand once its ammo is spent (a thrown rock)
     var moves: [MoveKey: Move] = [:]   // overrides of the default move table while this weapon is held
     var lightBonus: CGFloat = 0     // widens the holder's light in dark levels (0.22 = 22% wider)
-    let make: () -> SKNode
+    let code: () -> SKNode          // the code-drawn art, used unless weapon_<name>.png exists (see WeaponArt)
+    func make() -> SKNode { WeaponArt.node(named: name) ?? code() }
 
     var isRanged: Bool { !consumable && moves.values.contains { $0.projectile != nil } }   // archers kite and refill; one-shot throwables don't
 }
@@ -568,8 +569,8 @@ final class Projectile: SKNode {
         self.owner = owner; self.hit = hit; self.shot = shot; self.dir = dir; self.lane = lane
         self.height = height; self.vz = shot.vz
         switch shot.kind {
-        case .rock:  art = Weapons.rockArt()
-        case .bomb:  art = Weapons.bombArt()
+        case .rock:  art = WeaponArt.node(named: "rock") ?? Weapons.rockArt()
+        case .bomb:  art = WeaponArt.node(named: "bomb") ?? Weapons.bombArt()
         case .bolt:  art = Weapons.boltArt()
         case .ice:   art = Weapons.iceBoltArt()
         case .fire:  art = Weapons.fireBoltArt()
@@ -619,13 +620,14 @@ final class ProjectileField: SKNode {
         a.art.zRotation = 0
         NSLog("BOMB landed x%.0f lane%.0f", a.position.x, a.lane)
         let body = a.art as? SKShapeNode
+        let sprite = a.art as? SKSpriteNode
         let light = a.art.childNode(withName: "light")
         var steps: [SKAction] = []
         var on = false
         for d in [0.22, 0.22, 0.17, 0.17, 0.12, 0.12, 0.08, 0.08, 0.05, 0.05] as [TimeInterval] {
             on.toggle()
             let lit = on
-            steps.append(.run { body?.fillColor = lit ? SKColor(red: 0.9, green: 0.15, blue: 0.1, alpha: 1) : SKColor(white: 0.13, alpha: 1); light?.alpha = lit ? 1 : 0.3; a.art.setScale(lit ? 1.18 : 1) })
+            steps.append(.run { body?.fillColor = lit ? SKColor(red: 0.9, green: 0.15, blue: 0.1, alpha: 1) : SKColor(white: 0.13, alpha: 1); sprite?.color = SKColor(red: 0.9, green: 0.15, blue: 0.1, alpha: 1); sprite?.colorBlendFactor = lit ? 0.6 : 0; light?.alpha = lit ? 1 : 0.3; a.art.setScale(lit ? 1.18 : 1) })
             steps.append(.wait(forDuration: d))
         }
         steps.append(.run { [weak self, weak a] in
@@ -666,11 +668,16 @@ final class ProjectileField: SKNode {
 final class Crate: SKNode {
     static let halfWidth: CGFloat = 58, halfDepth: CGFloat = 24, height: CGFloat = 92
     let contents: PickupKind?
-    enum Style { case crate, altar, bush, witheredBush }
+    enum Style {
+        case crate, altar
+        case bush, witheredBush, frozenBush, crystal, charredBush      // scenery: forest, graveyard, snow, cave, ashlands
+        /// Decor: breaks in one hit, never blocks, never holds anything.
+        var isScenery: Bool { self != .crate && self != .altar }
+    }
     let style: Style
     var isAltar: Bool { style == .altar }         // a stack of stones with an idol on top (tougher, breaks into rubble)
-    var isBush: Bool { style == .bush || style == .witheredBush }
-    var blocks: Bool { !isBush }                  // bushes can be walked through
+    var isScenery: Bool { style.isScenery }
+    var blocks: Bool { !isScenery }               // scenery can be walked through
     private(set) var halfWidth = Crate.halfWidth, halfDepth = Crate.halfDepth, height = Crate.height
     var tag = -1                           // index into the area's props
     private(set) var health: CGFloat = 40
@@ -682,12 +689,12 @@ final class Crate: SKNode {
         self.contents = contents
         self.style = style ?? (altar ? .altar : .crate)
         if self.style == .altar { health = 70; maxHealth = 70 }
-        if self.style == .bush || self.style == .witheredBush { health = 1; maxHealth = 1 }
+        if self.style.isScenery { health = 1; maxHealth = 1 }
         super.init()
         position = CGPoint(x: x, y: lane)
         zPosition = 300 - lane
         if self.style == .altar { buildAltar(); return }
-        if isBush { buildBush(scale: scale); return }
+        if isScenery { buildScenery(scale: scale); return }
         let wood = SKColor(red: 0.62, green: 0.43, blue: 0.22, alpha: 1)
         let dark = SKColor(red: 0.42, green: 0.27, blue: 0.13, alpha: 1)
         let w = Self.halfWidth * 2, h = Self.height
@@ -738,25 +745,60 @@ final class Crate: SKNode {
         addChild(shadow)
     }
 
-    /// A leafy shrub: overlapping blobs, a few berries (or bare twigs when withered), swaying very slightly.
-    private func buildBush(scale: CGFloat) {
-        let withered = style == .witheredBush
-        let dark  = withered ? SKColor(red: 0.24, green: 0.24, blue: 0.16, alpha: 1) : SKColor(red: 0.16, green: 0.40, blue: 0.21, alpha: 1)
-        let mid   = withered ? SKColor(red: 0.36, green: 0.36, blue: 0.22, alpha: 1) : SKColor(red: 0.27, green: 0.58, blue: 0.27, alpha: 1)
-        let light = withered ? SKColor(red: 0.50, green: 0.46, blue: 0.27, alpha: 1) : SKColor(red: 0.43, green: 0.73, blue: 0.34, alpha: 1)
+    /// Colors for each kind of scenery: the shrub blobs or crystal body, and the debris when it breaks.
+    static func palette(for style: Style) -> (dark: SKColor, mid: SKColor, light: SKColor) {
+        func c(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> SKColor { SKColor(red: r, green: g, blue: b, alpha: 1) }
+        switch style {
+        case .witheredBush: return (c(0.24, 0.24, 0.16), c(0.36, 0.36, 0.22), c(0.50, 0.46, 0.27))
+        case .frozenBush:   return (c(0.40, 0.58, 0.76), c(0.62, 0.80, 0.92), c(0.88, 0.96, 1.00))
+        case .charredBush:  return (c(0.10, 0.09, 0.09), c(0.19, 0.16, 0.15), c(0.30, 0.24, 0.21))
+        case .crystal:      return (c(0.26, 0.22, 0.58), c(0.45, 0.40, 0.88), c(0.74, 0.70, 1.00))
+        default:            return (c(0.16, 0.40, 0.21), c(0.27, 0.58, 0.27), c(0.43, 0.73, 0.34))
+        }
+    }
+
+    /// Smashable decor: a shrub (green, withered, frozen or charred) or a glowing crystal cluster.
+    private func buildScenery(scale: CGFloat) {
+        if style == .crystal { buildCrystals(scale: scale) } else { buildShrub(scale: scale) }
+        addChild(art)
+        let shadow = SKShapeNode(ellipseOf: CGSize(width: halfWidth * 2.1, height: 14 * scale))
+        shadow.fillColor = SKColor(white: 0, alpha: 0.25); shadow.strokeColor = .clear; shadow.zPosition = -1
+        addChild(shadow)
+    }
+
+    /// Overlapping blobs. Green ones get berries and sway; withered and charred ones are bare twigs (charred glow with embers); frozen ones wear snow.
+    private func buildShrub(scale: CGFloat) {
+        let p = Crate.palette(for: style)
         halfWidth = 34 * scale; halfDepth = 16 * scale; height = 56 * scale
-        for (x, y, r, c) in [(-22, 18, 20, dark), (23, 16, 22, dark), (0, 27, 28, mid), (-13, 38, 17, light), (14, 40, 15, light)] as [(CGFloat, CGFloat, CGFloat, SKColor)] {
+        for (x, y, r, c) in [(-22, 18, 20, p.dark), (23, 16, 22, p.dark), (0, 27, 28, p.mid), (-13, 38, 17, p.light), (14, 40, 15, p.light)] as [(CGFloat, CGFloat, CGFloat, SKColor)] {
             let blob = styled(SKShapeNode(circleOfRadius: r), c, line: 3)
             blob.position = CGPoint(x: x, y: y)
             art.addChild(blob)
         }
-        if withered {
+        if style == .witheredBush || style == .charredBush {
+            let twigColor = style == .charredBush ? SKColor(red: 0.05, green: 0.04, blue: 0.04, alpha: 1) : SKColor(red: 0.22, green: 0.17, blue: 0.12, alpha: 1)
             for (x, a) in [(-14, 0.5), (4, -0.1), (18, -0.6)] as [(CGFloat, CGFloat)] {
-                let p = CGMutablePath()
-                p.move(to: CGPoint(x: x, y: 30)); p.addLine(to: CGPoint(x: x + sin(a) * 34, y: 30 + cos(a) * 34))
-                let twig = SKShapeNode(path: p); twig.strokeColor = SKColor(red: 0.22, green: 0.17, blue: 0.12, alpha: 1); twig.lineWidth = 3; twig.lineCap = .round
+                let path = CGMutablePath()
+                path.move(to: CGPoint(x: x, y: 30)); path.addLine(to: CGPoint(x: x + sin(a) * 34, y: 30 + cos(a) * 34))
+                let twig = SKShapeNode(path: path); twig.strokeColor = twigColor; twig.lineWidth = 3; twig.lineCap = .round
                 twig.zPosition = 3
                 art.addChild(twig)
+            }
+            if style == .charredBush {
+                for (x, y) in [(-12, 22), (8, 34), (20, 18), (-24, 30)] as [(CGFloat, CGFloat)] {
+                    let ember = SKShapeNode(circleOfRadius: 3)
+                    ember.fillColor = SKColor(red: 1, green: 0.5, blue: 0.1, alpha: 1); ember.strokeColor = .clear; ember.glowWidth = 3
+                    ember.position = CGPoint(x: x, y: y); ember.zPosition = 3
+                    ember.run(.sequence([.wait(forDuration: .random(in: 0...1)),
+                                         .repeatForever(.sequence([.fadeAlpha(to: 0.35, duration: .random(in: 0.5...1.0)), .fadeAlpha(to: 1, duration: .random(in: 0.5...1.0))]))]))
+                    art.addChild(ember)
+                }
+            }
+        } else if style == .frozenBush {
+            for (x, y, w) in [(-22, 36, 22), (23, 37, 24), (-13, 53, 26), (14, 54, 22), (0, 56, 20)] as [(CGFloat, CGFloat, CGFloat)] {
+                let cap = styled(SKShapeNode(ellipseOf: CGSize(width: w, height: w * 0.42)), SKColor(red: 0.97, green: 0.99, blue: 1, alpha: 1), line: 2)
+                cap.position = CGPoint(x: x, y: y); cap.zPosition = 3
+                art.addChild(cap)
             }
         } else if Bool.random() {
             for (x, y) in [(-8, 30), (12, 22), (22, 38)] as [(CGFloat, CGFloat)] {
@@ -766,12 +808,38 @@ final class Crate: SKNode {
             }
         }
         art.setScale(scale)
-        art.run(.sequence([.wait(forDuration: .random(in: 0...2)),
-                           .repeatForever(.sequence([.rotate(toAngle: 0.03, duration: .random(in: 1.1...1.9)), .rotate(toAngle: -0.03, duration: .random(in: 1.1...1.9))]))]))
-        addChild(art)
-        let shadow = SKShapeNode(ellipseOf: CGSize(width: halfWidth * 2.1, height: 14 * scale))
-        shadow.fillColor = SKColor(white: 0, alpha: 0.25); shadow.strokeColor = .clear; shadow.zPosition = -1
-        addChild(shadow)
+        if style == .bush || style == .witheredBush {
+            art.run(.sequence([.wait(forDuration: .random(in: 0...2)),
+                               .repeatForever(.sequence([.rotate(toAngle: 0.03, duration: .random(in: 1.1...1.9)), .rotate(toAngle: -0.03, duration: .random(in: 1.1...1.9))]))]))
+        }
+    }
+
+    /// A cluster of pointed crystals with a lit facet each, over a soft glow that slowly pulses.
+    private func buildCrystals(scale: CGFloat) {
+        let p = Crate.palette(for: style)
+        halfWidth = 30 * scale; halfDepth = 14 * scale; height = 74 * scale
+        let glow = SKShapeNode(ellipseOf: CGSize(width: 96, height: 36))
+        glow.fillColor = SKColor(red: 0.6, green: 0.5, blue: 1, alpha: 0.3); glow.strokeColor = .clear
+        glow.position = CGPoint(x: 0, y: 8); glow.zPosition = -0.5
+        glow.run(.sequence([.wait(forDuration: .random(in: 0...2)),
+                            .repeatForever(.sequence([.fadeAlpha(to: 0.35, duration: 1.3), .fadeAlpha(to: 1, duration: 1.3)]))]))
+        art.addChild(glow)
+        for (x, h, w, tilt) in [(-26, 42, 17, 0.3), (24, 50, 18, -0.24), (-8, 34, 14, 0.5), (12, 30, 13, -0.5), (0, 74, 22, 0.05)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+            let body = CGMutablePath()
+            body.move(to: CGPoint(x: -w / 2, y: 0)); body.addLine(to: CGPoint(x: -w * 0.43, y: h * 0.72))
+            body.addLine(to: CGPoint(x: 0, y: h)); body.addLine(to: CGPoint(x: w * 0.43, y: h * 0.72))
+            body.addLine(to: CGPoint(x: w / 2, y: 0)); body.closeSubpath()
+            let shard = styled(SKShapeNode(path: body), p.mid, line: 3)
+            let facet = CGMutablePath()
+            facet.move(to: CGPoint(x: 0, y: 6)); facet.addLine(to: CGPoint(x: 0, y: h - 8))
+            facet.addLine(to: CGPoint(x: w * 0.31, y: h * 0.68)); facet.addLine(to: CGPoint(x: w * 0.4, y: 6)); facet.closeSubpath()
+            shard.addChild(styled(SKShapeNode(path: facet), p.light, line: 0))
+            let holder = SKNode()
+            holder.position = CGPoint(x: x, y: 0); holder.zRotation = tilt
+            holder.addChild(shard)
+            art.addChild(holder)
+        }
+        art.setScale(scale)
     }
 
     /// Returns true if this blow broke it.
@@ -787,7 +855,7 @@ final class Crate: SKNode {
     }
 
     private func addCrack() {
-        guard !isBush else { return }
+        guard !isScenery else { return }
         let p = CGMutablePath(), x = CGFloat.random(in: -34...34), y = height * CGFloat.random(in: 0.35...0.8)
         p.move(to: CGPoint(x: x, y: y))
         p.addLine(to: CGPoint(x: x + 9, y: y - 16)); p.addLine(to: CGPoint(x: x - 4, y: y - 26)); p.addLine(to: CGPoint(x: x + 8, y: y - 42))
@@ -820,7 +888,7 @@ final class CrateField: SKNode {
                       abs(c.position.y - a.rig.position.y) <= hit.depth + c.halfDepth,
                       a.claim(index, id: ObjectIdentifier(c)) else { continue }
                 let dmg = hit.damage * power * a.damageMultiplier
-                a.hitStop(c.isBush ? 0.015 : 0.04)
+                a.hitStop(c.isScenery ? 0.015 : 0.04)
                 contacts.append(Combat.Contact(point: CGPoint(x: c.position.x - dir * c.halfWidth, y: c.position.y + c.height * 0.55),
                                                damage: dmg, attacker: a, move: a.currentMove))
                 if c.damage(dmg * hit.vsHeavy, fromRight: dir < 0) { smash(c, pickups: pickups) }
@@ -837,37 +905,78 @@ final class CrateField: SKNode {
         }
     }
 
-    private func burstLeaves(_ c: Crate) {
-        let withered = c.style == .witheredBush
-        let greens: [SKColor] = withered
-            ? [SKColor(red: 0.36, green: 0.36, blue: 0.22, alpha: 1), SKColor(red: 0.50, green: 0.46, blue: 0.27, alpha: 1)]
-            : [SKColor(red: 0.27, green: 0.58, blue: 0.27, alpha: 1), SKColor(red: 0.43, green: 0.73, blue: 0.34, alpha: 1), SKColor(red: 0.16, green: 0.40, blue: 0.21, alpha: 1)]
-        for _ in 0..<16 {
-            let leaf = styled(SKShapeNode(ellipseOf: CGSize(width: 14, height: 7)), greens.randomElement() ?? greens[0], line: 2)
+    /// Scenery bursts into its own debris: leaves and twigs, ice shards and snow, crystal shards, or ash and embers.
+    private func burstScenery(_ c: Crate) {
+        let p = Crate.palette(for: c.style)
+        let cols: [SKColor] = c.style == .witheredBush ? [p.mid, p.light] : [p.mid, p.light, p.dark]
+        let crystal = c.style == .crystal
+        let power: CGFloat = crystal ? 1.4 : 1
+        func shape() -> SKShapeNode {
+            switch c.style {
+            case .frozenBush, .crystal:
+                let d = CGMutablePath()
+                d.move(to: CGPoint(x: 0, y: 10)); d.addLine(to: CGPoint(x: 5, y: 0)); d.addLine(to: CGPoint(x: 0, y: -10)); d.addLine(to: CGPoint(x: -5, y: 0)); d.closeSubpath()
+                return SKShapeNode(path: d)
+            case .charredBush: return SKShapeNode(ellipseOf: CGSize(width: 10, height: 5))
+            default:           return SKShapeNode(ellipseOf: CGSize(width: 14, height: 7))
+            }
+        }
+        for _ in 0..<(crystal ? 12 : 16) {
+            let leaf = styled(shape(), cols.randomElement() ?? cols[0], line: 2)
             leaf.position = CGPoint(x: c.position.x + .random(in: -c.halfWidth...c.halfWidth), y: c.position.y + .random(in: 10...c.height))
             leaf.zPosition = c.zPosition + 1
             leaf.zRotation = .random(in: 0...(.pi))
             addChild(leaf)
-            let dx = CGFloat.random(in: -150...150), up = CGFloat.random(in: 50...140), sway = CGFloat.random(in: 20...55) * (Bool.random() ? 1 : -1)
+            let dx = CGFloat.random(in: -150...150) * power, up = CGFloat.random(in: 50...140) * power, sway = CGFloat.random(in: 20...55) * (Bool.random() ? 1 : -1)
             leaf.run(.sequence([
                 .group([.moveBy(x: dx, y: up, duration: 0.3).with(.easeOut), .rotate(byAngle: .random(in: -6...6), duration: 1.1)]),
                 .group([.moveBy(x: sway, y: -up - 50, duration: 0.8).with(.easeIn), .rotate(byAngle: .random(in: -3...3), duration: 0.8)]),
                 .fadeOut(withDuration: 0.3), .removeFromParent()]))
         }
-        for _ in 0..<3 {
-            let twig = styled(SKShapeNode(rect: CGRect(x: -11, y: -1.5, width: 22, height: 3)), SKColor(red: 0.40, green: 0.28, blue: 0.16, alpha: 1), line: 1)
-            twig.position = CGPoint(x: c.position.x + .random(in: -20...20), y: c.position.y + .random(in: 14...40))
-            twig.zPosition = c.zPosition + 1; twig.zRotation = .random(in: 0...(.pi))
-            addChild(twig)
-            let dx = CGFloat.random(in: -120...120), up = CGFloat.random(in: 30...90)
-            twig.run(.sequence([.group([.moveBy(x: dx, y: up, duration: 0.25).with(.easeOut), .rotate(byAngle: .random(in: -5...5), duration: 0.6)]),
-                                .moveBy(x: dx * 0.2, y: -up - 45, duration: 0.3).with(.easeIn), .fadeOut(withDuration: 0.2), .removeFromParent()]))
+        if c.style == .bush || c.style == .witheredBush || c.style == .charredBush {
+            let twigColor = c.style == .charredBush ? SKColor(red: 0.08, green: 0.07, blue: 0.07, alpha: 1) : SKColor(red: 0.40, green: 0.28, blue: 0.16, alpha: 1)
+            for _ in 0..<3 {
+                let twig = styled(SKShapeNode(rect: CGRect(x: -11, y: -1.5, width: 22, height: 3)), twigColor, line: 1)
+                twig.position = CGPoint(x: c.position.x + .random(in: -20...20), y: c.position.y + .random(in: 14...40))
+                twig.zPosition = c.zPosition + 1; twig.zRotation = .random(in: 0...(.pi))
+                addChild(twig)
+                let dx = CGFloat.random(in: -120...120), up = CGFloat.random(in: 30...90)
+                twig.run(.sequence([.group([.moveBy(x: dx, y: up, duration: 0.25).with(.easeOut), .rotate(byAngle: .random(in: -5...5), duration: 0.6)]),
+                                    .moveBy(x: dx * 0.2, y: -up - 45, duration: 0.3).with(.easeIn), .fadeOut(withDuration: 0.2), .removeFromParent()]))
+            }
+        }
+        func dot(_ r: CGFloat, _ color: SKColor, glow: CGFloat = 0) -> SKShapeNode {
+            let n = SKShapeNode(circleOfRadius: r)
+            n.fillColor = color; n.strokeColor = .clear; n.glowWidth = glow
+            n.position = CGPoint(x: c.position.x + .random(in: -c.halfWidth...c.halfWidth), y: c.position.y + .random(in: 10...c.height * 0.8))
+            n.zPosition = c.zPosition + 2
+            addChild(n)
+            return n
+        }
+        switch c.style {
+        case .charredBush:                                   // embers rise out of the ash
+            for _ in 0..<8 {
+                let e = dot(.random(in: 2.5...4), SKColor(red: 1, green: 0.5, blue: 0.1, alpha: 1), glow: 3)
+                e.run(.sequence([.group([.moveBy(x: .random(in: -40...40), y: .random(in: 90...200), duration: 0.9).with(.easeOut), .fadeOut(withDuration: 0.9)]), .removeFromParent()]))
+            }
+        case .frozenBush:                                    // snow puffs drift down
+            for _ in 0..<8 {
+                let puff = dot(.random(in: 4...8), SKColor(white: 1, alpha: 0.9))
+                let up = CGFloat.random(in: 30...80)
+                puff.run(.sequence([.moveBy(x: .random(in: -60...60), y: up, duration: 0.25).with(.easeOut),
+                                    .group([.moveBy(x: .random(in: -25...25), y: -up - 50, duration: 1.0).with(.easeIn), .fadeOut(withDuration: 1.0)]), .removeFromParent()]))
+            }
+        case .crystal:                                       // a flash of light as it shatters
+            let flash = dot(34, SKColor(red: 0.85, green: 0.8, blue: 1, alpha: 0.8), glow: 8)
+            flash.position = CGPoint(x: c.position.x, y: c.position.y + c.height * 0.4)
+            flash.run(.sequence([.group([.scale(to: 2.4, duration: 0.25), .fadeOut(withDuration: 0.25)]), .removeFromParent()]))
+        default: break
         }
     }
 
     private func smash(_ c: Crate, pickups: PickupField) {
         crates.removeAll { $0 === c }
-        if c.isBush { burstLeaves(c); c.removeFromParent(); return }
+        if c.isScenery { burstScenery(c); c.removeFromParent(); return }
         let wood = c.isAltar ? SKColor(red: 0.48, green: 0.49, blue: 0.54, alpha: 1) : SKColor(red: 0.62, green: 0.43, blue: 0.22, alpha: 1)
         for _ in 0..<10 {
             let plank = styled(SKShapeNode(rect: CGRect(x: -14, y: -4, width: 28, height: 8)), wood, line: 2)

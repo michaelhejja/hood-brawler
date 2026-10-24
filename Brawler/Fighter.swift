@@ -210,8 +210,11 @@ final class Fighter {
     // Combat state
     private(set) var launched = false          // knocked into the air (juggle)
     private(set) var deadSince: TimeInterval?
+    private(set) var deathStyle = DeathStyle.standard      // rolled on the killing blow
     private var hurtUntil: TimeInterval = 0
     private var downUntil: TimeInterval = 0
+    private var downSince: TimeInterval = 0           // when it hit the floor (quick rise needs a beat on the ground first)
+    private var autoRiseAt: TimeInterval?             // an enemy that will quick rise on its own
     private var advance: (from: TimeInterval, dur: TimeInterval, dist: CGFloat, dir: CGFloat, done: CGFloat)?
     private var knock: CGFloat = 0              // signed x velocity from the last hit
     private var frozenUntil: TimeInterval = 0   // hit-stop
@@ -260,7 +263,7 @@ final class Fighter {
     func restore() {
         health = stats.maxHealth; deadSince = nil; launched = false
         airborne = false; jump = nil; vz = 0; falling = false; knock = 0; velocity = 0
-        hurtUntil = 0; downUntil = 0; brakeUntil = 0; actionUntil = 0; frozenUntil = 0
+        hurtUntil = 0; downUntil = 0; autoRiseAt = nil; brakeUntil = 0; actionUntil = 0; frozenUntil = 0
         current = nil; buffered = nil; claims = [:]; loco = nil; advance = nil
         grabAt = nil; fireAt = nil; pendingShot = nil; lootDropped = false; equip(startWeapon)
         rig.isPaused = false; rig.height = 0; rig.alpha = 1; rig.speed = 1
@@ -408,6 +411,14 @@ final class Fighter {
     // MARK: Gestures -> moves
 
     func handle(_ g: Gesture, bufferedAt: TimeInterval? = nil) {
+        if team == 0, isDown, !dead, chargeStart == nil {
+            // Knocked down: swipe up = quick rise, swipe back = quick rise straight into the dodge roll. Anything else waits for the knockdown.
+            let t = Trigger(g, facingRight: rig.facingRight)
+            guard t == .up || t == .back, now - downSince >= QuickRise.minDown else { return }
+            quickRise(settle: t == .up)
+            if t == .up { lastGesture = "up -> quick rise"; return }
+            lastGesture = "back -> quick rise, then roll"
+        }
         guard !incapacitated, chargeStart == nil else { return }
         let trigger = Trigger(g, facingRight: rig.facingRight)
         if guarding {
@@ -744,6 +755,9 @@ final class Fighter {
         let keepsShield = (guardBreaks && hasShield) || keepsWeapon          // an enemy's shield only comes off when it breaks, or when its holder dies
         if (hit.isStrong && !stats.unlaunchable && !keepsShield) || (hit.shatters && hasShield) || dead { disarm(away: away) }       // before the reaction animation, which resets the weapon pose
 
+        // Enemies only (the hero is team 0). A kneel needs a grounded body, so launches and fliers skip it (the same test the branches below use).
+        if dead, deadSince == nil, team != 0 { deathStyle = DeathStyle.roll(name: name, canKneel: !(airborne || hit.launch > 0 || stats.flies)) }
+
         if stats.flies && !stats.unlaunchable && !dead {
             // Light and airborne: a hit knocks it back and drops it to where ground attacks can follow up
             knock = away * min(hit.knockback * power, 260)
@@ -769,7 +783,7 @@ final class Fighter {
             if !rejuggle { rig.reaction = rollReaction("down") }      // one style per launch: the landing keeps it
             rig.play(.knockdown)
         } else if hit.knockback * power >= 500 || dead {
-            rig.reaction = rollReaction("down")
+            rig.reaction = deathStyle == .kneel ? 3 : rollReaction("down")
             lieDown(for: hit.stun + 0.4)                    // blasted flat
         } else {
             hurtUntil = now + hit.stun                      // ordinary flinch
@@ -782,11 +796,27 @@ final class Fighter {
 
     private func lieDown(for duration: TimeInterval) {
         rig.play(.knockdown)
-        rig.dust()
+        if rig.reaction != 3 { rig.dust() }                 // the kneel raises its own dust when it hits the floor
         downUntil = now + (dead ? 600 : duration)
+        downSince = now
         hurtUntil = downUntil
         actionUntil = downUntil
         loco = nil
+        autoRiseAt = nil
+        if !dead, team != 0, ProcessInfo.processInfo.arguments.contains("-quickrise") || Double.random(in: 0..<1) < QuickRise.enemyChance {
+            autoRiseAt = now + .random(in: 0.4...0.8)       // a rare enemy that pops back up early
+        }
+    }
+
+    /// Gets up right now instead of waiting out the knockdown, with a moment of invulnerability so the rise can't be hit out of.
+    /// `settle`: hold the next action while the get-up plays (false when a roll follows at once).
+    private func quickRise(settle: Bool) {
+        downUntil = 0; hurtUntil = 0; autoRiseAt = nil
+        actionUntil = settle ? now + QuickRise.getUpTime : now
+        loco = nil
+        setInvulnerable(for: QuickRise.invulnerable)
+        if settle { rig.riseFast() }
+        rig.dust()
     }
 
     /// Freeze this fighter for a few frames on impact. Every timer shifts by the same amount, so nothing desyncs.
@@ -801,6 +831,7 @@ final class Fighter {
         if brakeUntil > 0 { brakeUntil += extra }
         if hurtUntil > 0 { hurtUntil += extra }
         if downUntil > 0 { downUntil += extra }
+        if let a = autoRiseAt { autoRiseAt = a + extra }
         if var c = current { c.start += extra; current = c }
         if var a = advance { a.from += extra; advance = a }
         if let g = grabAt { grabAt = g + extra }
@@ -827,6 +858,7 @@ final class Fighter {
             frozenUntil = 0; rig.isPaused = false
         }
         let d = CGFloat(dt)
+        if let t = autoRiseAt, currentTime >= t { autoRiseAt = nil; if isDown, !dead { quickRise(settle: true) } }
         if guarding, incapacitated { endGuard() }
 
         if let f = frost, currentTime >= slowUntil { f.removeFromParent(); frost = nil }
@@ -895,4 +927,13 @@ final class Fighter {
             }
         }
     }
+}
+
+
+/// Quick rise: the hero can get off the floor early (swipe up) or roll away (swipe back). A few enemies do it on their own.
+enum QuickRise {
+    static let minDown: TimeInterval = 0.3          // a beat on the floor first, so a knockdown still reads
+    static let getUpTime: TimeInterval = 0.22       // how long the get-up holds the next action
+    static let invulnerable: TimeInterval = 0.35    // can't be hit while getting up
+    static let enemyChance = 0.06                   // per knockdown; `-quickrise` forces it for testing
 }

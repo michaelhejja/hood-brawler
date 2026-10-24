@@ -5,7 +5,7 @@ Repo: github.com/michaelhejja/hood-brawler
 Controls reference: `CONTROLS.md`
 
 ## Latest build
-Version 0.2, build 9 (see `git log` for the commit). Previous builds: 8 `87d45e0`, 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
+Version 0.2, build 10 (see `git log` for the commit). Previous builds: 9 `5751a7f`, 8 `87d45e0`, 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
 Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Art
@@ -53,3 +53,11 @@ Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 - A dying skeleton (30%) or giant skeleton (50%) can break into its parts, which fly off, bounce and fade. `HumanoidRig.shatter` does it, and `boneBreakChance` in `GameScene.swift` sets the odds. `-bonebreak` forces it.
 - Fixed a bug where a killing blow's hit-stop left the copied pieces paused, so the skeleton froze upright until the game was paused and resumed. `shatter` now unpauses each piece.
 - Still worth checking: skeletons facing left (mirroring of the loose parts) and giants (throw speed).
+
+## Added in build 10
+- **Quick rise:** knocked down, swipe up (after 0.3s) stands you up with 0.35s invulnerability; swipe back stands up and rolls. About 6% of enemy knockdowns pop up early (`QuickRise` in `Fighter.swift`; `-quickrise` forces it).
+- **Death styles:** `DeathStyle.swift` holds all alternate-death odds in one table (kneel-and-topple 15% for every grounded enemy; skeleton break-apart 30%, giant skeleton 50%). `-kneel` and `-bonebreak` force them. Keep each enemy's total under 1.
+- **Theme scenery:** smashable decor per theme via `Levels.withScenery(..., style:)`: bush (forest), withered (graveyard), frozen (snow), crystal (cave), charred (ashlands). `-scenery` loads a test arena.
+- **Weapon art import:** draw on `Art/templates/weapon_guides.png` (2560x1640), then run `Art/import_weapons.sh weapons.png`. `WeaponArt` in `Sprites.swift` loads `weapon_<name>.png` and rebuilds the bow string, staff glows, shield glow, light blade glow and bomb spark as overlays. Weapons with no drawing keep their code art. Not yet tried with a real drawing.
+- **Speech:** every level `Say` is spoken by the hero and follows them; the Bat King's cries follow him. No loose bubbles remain.
+- Unchecked on screen: kneel timing, quick rise feel, the new scenery, the weapon loader.
