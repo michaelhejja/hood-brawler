@@ -5,7 +5,7 @@ Repo: github.com/michaelhejja/hood-brawler
 Controls reference: `CONTROLS.md`
 
 ## Latest build
-Version 0.2, build 8 (see `git log` for the commit). Previous builds: 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
+Version 0.2, build 9 (see `git log` for the commit). Previous builds: 8 `87d45e0`, 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
 Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Art
@@ -51,4 +51,5 @@ Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Skeleton break-apart
 - A dying skeleton (30%) or giant skeleton (50%) can break into its parts, which fly off, bounce and fade. `HumanoidRig.shatter` does it, and `boneBreakChance` in `GameScene.swift` sets the odds. `-bonebreak` forces it.
-- Not yet seen running. Check skeletons facing left (mirroring of the loose parts) and giants (throw speed).
+- Fixed a bug where a killing blow's hit-stop left the copied pieces paused, so the skeleton froze upright until the game was paused and resumed. `shatter` now unpauses each piece.
+- Still worth checking: skeletons facing left (mirroring of the loose parts) and giants (throw speed).

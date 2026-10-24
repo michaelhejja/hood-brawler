@@ -97,6 +97,9 @@ final class HumanoidRig: SKNode {
             piece.yScale = part.yScale * yScale
             piece.zPosition = zPosition + part.zPosition + 1
             world.addChild(piece)
+            // A killing blow hit-stops the rig (isPaused), and copies keep that flag, which would freeze the pieces in place
+            piece.isPaused = false
+            piece.enumerateChildNodes(withName: "//*") { n, _ in n.isPaused = false }
 
             var vx = CGFloat.random(in: -330...330), vy = CGFloat.random(in: 280...640)
             var spin = CGFloat.random(in: -13...13)
