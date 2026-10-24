@@ -31,6 +31,7 @@ struct FighterStats {
     var attackSpeed: CGFloat = 1        // grounded attacks run this much faster (Frenzy buff); jumps and air moves are unaffected
     var size: CGFloat = 1               // body scale for combat: multiplies hit reach and how far its own body reaches into hits
     var ignoresPickups = false          // never grabs anything, weapons included (too big to use them)
+    var finisherStyle = FinisherStyle()      // the hero's take on the shared finishers
     var innateMoves: [MoveKey: Move] = [:]   // moves it has without a weapon (a demon's fire); a held weapon still overrides
     var flies = false                   // sets its own height (a bat): hovers out of reach of ground attacks, sinks when hurt
     var unlaunchable = false            // never leaves the ground: launchers and big hits only rock it back
@@ -529,7 +530,7 @@ final class Fighter {
     private func perform(_ original: Move) {
         var requested = original
         if original.name != "air slam" { slamFinisher = false }
-        if collectsItems, finisherReady, let f = MoveTable.finisherVersion(of: original.name) {
+        if collectsItems, finisherReady, let f = MoveTable.finisherVersion(of: original.name, style: stats.finisherStyle) {
             requested = f
             onFinisher?(f)
         } else if collectsItems, finisherReady, original.name == "air slam" {
@@ -626,7 +627,7 @@ final class Fighter {
         if slammed {
             // Cooldown with the combo chain open immediately (see MoveTable.slamLanding)
             let big = slamFinisher; slamFinisher = false
-            let m = big ? MoveTable.slamLandingFinisher : MoveTable.slamLanding
+            let m = big ? MoveTable.slamLandingFinisher.styled(stats.finisherStyle) : MoveTable.slamLanding
             rig.finisher = big
             rig.play(.slamLand)
             if big { onFinisher?(m) }

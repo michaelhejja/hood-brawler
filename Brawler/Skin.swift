@@ -222,6 +222,24 @@ enum HeroKind: Int, CaseIterable {
         if self == .ember { return SpriteSkin.wrap("ember", EmberSkin()) }
         return [TemplateSkin(), EmberSkin(), BullySkin()][rawValue]
     }
+    /// The hero's signature color: finisher callouts, the finisher ring and the READY label.
+    var color: SKColor { [SKColor(red: 1, green: 0.82, blue: 0.2, alpha: 1), SKColor(red: 1, green: 0.18, blue: 0.58, alpha: 1), SKColor(red: 0.55, green: 0.78, blue: 1, alpha: 1)][rawValue] }
+    /// Ember's finishers hit lighter and stun for less; Bully's are wider, heavier and stun for longer. Cloak is the baseline.
+    var finisherStyle: FinisherStyle {
+        switch self {
+        case .ember: return FinisherStyle(damage: 0.85, reach: 1, knockback: 0.85, launch: 1, stun: 0.9)
+        case .bully: return FinisherStyle(damage: 1.3, reach: 1.2, knockback: 1.25, launch: 1, stun: 1.15)
+        default:     return FinisherStyle()
+        }
+    }
+    /// Finisher callout names: uppercut, ground smash, forward swipe, air slam.
+    var finisherNames: (up: String, smash: String, forward: String, slam: String) {
+        switch self {
+        case .ember: return ("AIR FLURRY!", "DANCE SHOES!", "MEGA SLAP!", "RECKONING!")
+        case .bully: return ("LAUNCHED!", "PULVERIZED!", "OUTTA MY WAY!", "ANVIL DROP!")
+        default:     return ("SKYBREAKER!", "EARTHSHATTER!", "KNOCKOUT!", "METEOR!")
+        }
+    }
     var special: Special { [Specials.rageSlam, Specials.whirlwind, Specials.bullRush][rawValue] }
     var bulk: CGFloat { self == .bully ? 1.12 : 1 }
     var stats: FighterStats {
@@ -245,7 +263,8 @@ enum HeroKind: Int, CaseIterable {
     }
 
     func makeFighter() -> Fighter {
-        let f = Fighter(name: "hero", skin: skin, stats: stats)
+        var s = stats; s.finisherStyle = finisherStyle
+        let f = Fighter(name: "hero", skin: skin, stats: s)
         f.rig.scaleFactor = bulk
         return f
     }

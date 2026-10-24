@@ -969,11 +969,11 @@ final class Door: SKNode {
         addChild(art)
 
         let title = SKLabelNode(fontNamed: GameFont.banner)
-        title.text = name.uppercased(); title.fontSize = 20; title.fontColor = .white
+        title.text = name.uppercased(); title.fontSize = 32; title.fontColor = .white
         title.verticalAlignmentMode = .center; title.position = CGPoint(x: 0, y: 232); title.zPosition = 2
         let shade = SKLabelNode(fontNamed: GameFont.banner)
-        shade.text = title.text; shade.fontSize = 20; shade.fontColor = .black; shade.verticalAlignmentMode = .center
-        shade.position = CGPoint(x: 2, y: -2); shade.zPosition = -1
+        shade.text = title.text; shade.fontSize = 32; shade.fontColor = .black; shade.verticalAlignmentMode = .center
+        shade.position = CGPoint(x: 3, y: -3); shade.zPosition = -1
         title.addChild(shade)
         addChild(title)
         let arrow = CGMutablePath()
@@ -981,7 +981,7 @@ final class Door: SKNode {
         arrow.addLine(to: CGPoint(x: 6, y: 0)); arrow.addLine(to: CGPoint(x: 6, y: -18)); arrow.addLine(to: CGPoint(x: -6, y: -18))
         arrow.addLine(to: CGPoint(x: -6, y: 0)); arrow.closeSubpath()
         hint.addChild(styled(SKShapeNode(path: arrow), SKColor(red: 1, green: 0.95, blue: 0.5, alpha: 1), line: 4))
-        hint.position = CGPoint(x: 0, y: 270); hint.zPosition = 3; hint.alpha = 0
+        hint.position = CGPoint(x: 0, y: 288); hint.zPosition = 3; hint.alpha = 0
         addChild(hint)
         swirl.run(.repeatForever(.sequence([.scaleX(to: 1.06, duration: 0.8), .scaleX(to: 0.96, duration: 0.8)])))
     }

@@ -83,6 +83,8 @@ extension Hit {
     // Finisher versions (long combos): about double the damage, wider and stronger launches. Same timing as the originals.
     static let uppercutFinisher = Hit(start: 0.07, duration: 0.18, reach: -30...200, depth: 70, heightTolerance: 320, damage: 32, knockback: 120, launch: 1500, stun: 0.6)
     static let smashFinisher    = Hit(start: 0.25, duration: 0.14, reach: -140...260, depth: 90, heightTolerance: 140, damage: 38, knockback: 900, launch: 600, stun: 0.8, vsHeavy: 2)
+    static let knockoutFinisher = Hit(start: 0.10, duration: 0.12, reach: 0...190, damage: 30, knockback: 950, stun: 0.8, vsHeavy: 2)       // flattens them: knockback, no launch
+    static let knockoutDash     = Hit(start: 0.08, duration: 0.18, reach: 0...200, damage: 30, knockback: 950, stun: 0.8, disarm: true, vsHeavy: 2)
     static let shockwaveFinisher = Hit(start: 0, duration: 0.14, reach: -280...280, depth: 100, heightTolerance: 100, damage: 28, knockback: 800, launch: 650, stun: 0.8, vsHeavy: 2)
     // Air strike: quick, short-range, forgiving about height so it connects with things above or below you
     static let airStrike  = Hit(start: 0.03, duration: 0.14, reach: -10...125, depth: 38, heightTolerance: 220, damage: 8, knockback: 180, stun: 0.3)
@@ -109,6 +111,15 @@ enum FinisherTuning {
     /// Combo hits needed before the uppercut / ground smash / air slam become their finisher versions. Another one is earned
     /// every `threshold` hits after that (10, 20, 30 ...), and a combo that ends starts the count again.
     static var threshold = 10
+}
+
+/// How a hero bends the shared finishers: multipliers on every hit of the finisher move. All 1 = the shared version.
+struct FinisherStyle {
+    var damage: CGFloat = 1
+    var reach: CGFloat = 1
+    var knockback: CGFloat = 1
+    var launch: CGFloat = 1          // launch speed and the uppercut's jump height
+    var stun: TimeInterval = 1
 }
 
 /// Pure data. To add a move, add one row to `MoveTable.rows`.
@@ -145,6 +156,16 @@ struct Move {
     func hitting(_ h: Hit...) -> Move { var m = self; m.hits = h; return m }
 
     /// The same move run `k` times faster: every time value shrinks, distances and damage stay the same.
+    func styled(_ s: FinisherStyle) -> Move {
+        var m = self
+        m.jumpHeight *= s.launch
+        m.hits = hits.map { var h = $0
+            h.damage *= s.damage; h.knockback *= s.knockback; h.launch *= s.launch; h.stun *= s.stun
+            h.reach = (h.reach.lowerBound * s.reach)...(h.reach.upperBound * s.reach)
+            return h }
+        return m
+    }
+
     func sped(by k: CGFloat) -> Move {
         var m = self
         let t = TimeInterval(1 / k)
@@ -169,7 +190,7 @@ enum MoveTable {
         (.grounded, .up,      Move(name: "small jump",    jumpHeight: 170)),
         (.grounded, .down,    Move(name: "pick up",       animation: .pickup, lock: 0.28, grab: 0.1)),
         (.grounded, .back,    Move(name: "dodge roll",   animation: .roll, lock: 0.38, advance: -250, advanceDuration: 0.3, plant: true, invulnerable: 0.26, buffersInput: false, cancelAt: 0.26, window: 0.08)),
-        (.grounded, .forward, Move(name: "heavy attack",  animation: .hook, lock: 0.5, lunge: 140).hitting(.hook).armed.emphasized(.light)),
+        (.grounded, .forward, heavyAttack),
 
         // Fully running
         (.running,  .tap,     Move(name: "dash attack",   animation: .jab,  lock: 0.3, lunge: 560).hitting(.dashJab)),
@@ -183,6 +204,7 @@ enum MoveTable {
     ]
 
     // Combo links: after `from` (by move name), `trigger` gives the next move. Input-driven: no hit required.
+    private static let heavyAttack = Move(name: "heavy attack", animation: .hook, lock: 0.5, lunge: 140).hitting(.hook).armed.emphasized(.light)
     private static let powerDash = Move(name: "power dash",    animation: .hook, lock: 0.5, lunge: 760).hitting(.dashHook).armed.emphasized(.medium)
     /// The roll counter: same hit, but it covers about the 250 the roll gave up (lunge speed 950 coasts ~245), so you re-engage where you were.
     private static let counterDash = Move(name: "counter dash",  animation: .hook, lock: 0.5, lunge: 950).hitting(.dashHook).armed.emphasized(.medium)
@@ -201,12 +223,18 @@ enum MoveTable {
     /// Powered-up copies keep the original's name, so every chain that follows them still works.
     static let uppercutFinisher: Move = { var m = uppercut; m.hits = [.uppercutFinisher]; m.jumpHeight = 520; m.emphasis = .massive; m.finisher = true; return m }()
     static let smashFinisher: Move = { var m = groundSmash; m.hits = [.smashFinisher]; m.power = 1.0; m.emphasis = .massive; m.finisher = true; return m }()
+    static let knockoutHeavy: Move = { var m = heavyAttack; m.hits = [.knockoutFinisher]; m.emphasis = .massive; m.finisher = true; return m }()
+    static let knockoutPowerDash: Move = { var m = powerDash; m.hits = [.knockoutDash]; m.emphasis = .massive; m.finisher = true; return m }()
     static let slamLandingFinisher: Move = { var m = slamLanding; m.hits = [.shockwaveFinisher]; m.finisher = true; return m }()
+
+    static func finisherVersion(of name: String, style: FinisherStyle) -> Move? { finisherVersion(of: name)?.styled(style) }
 
     static func finisherVersion(of name: String) -> Move? {
         switch name {
         case "uppercut": return uppercutFinisher
         case "ground smash": return smashFinisher
+        case "heavy attack": return knockoutHeavy              // forward swipe, standing
+        case "power dash": return knockoutPowerDash            // forward swipe, running
         default: return nil
         }
     }

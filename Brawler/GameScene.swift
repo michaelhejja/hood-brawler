@@ -617,6 +617,7 @@ final class GameScene: SKScene {
     private let comboHUD = ComboHUD()                                    // "12 HITS"
 
     let hero = HeroKind.selected.makeFighter()
+    private let heroKind = HeroKind.selected
     private var enemies: [Fighter] = []
 
     private let cam = SKCameraNode()
@@ -753,7 +754,7 @@ final class GameScene: SKScene {
         }
         if args.contains("-finishertest") {        // debug: finishers always armed; scripted tap, tap, uppercut, ground smash, jump, air slam at the nearest enemy
             hero.raiseMaxHealth(by: 900)
-            let script: [(String, TimeInterval)] = [("face", 0.05), ("tap", 0.26), ("tap", 0.26), ("up", 1.8), ("face", 0.05), ("smash", 1.6), ("face", 0.05), ("up", 0.42), ("down", 2.2)]
+            let script: [(String, TimeInterval)] = [("face", 0.05), ("fwd", 1.6), ("face", 0.05), ("tap", 0.26), ("tap", 0.26), ("up", 1.8), ("face", 0.05), ("smash", 1.6), ("face", 0.05), ("up", 0.42), ("down", 2.2)]
             var steps: [SKAction] = [.wait(forDuration: 2.5)]
             for (s, d) in script { steps.append(.run { [weak self] in self?.finisherTest(s) }); steps.append(.wait(forDuration: d)) }
             run(.repeatForever(.sequence(steps)))
@@ -1407,6 +1408,7 @@ final class GameScene: SKScene {
         cam.addChild(buffLabel)
         comboHUD.zPosition = 10_000
         cam.addChild(comboHUD)
+        comboHUD.setReadyColor(heroKind.color)
         updateKills()
     }
 
@@ -1458,6 +1460,7 @@ final class GameScene: SKScene {
         switch step {
         case "tap":   hero.handle(.tap)
         case "up":    hero.handle(.swipe(.up))
+        case "fwd":   hero.handle(.swipe(hero.rig.facingRight ? .right : .left))
         case "down":  hero.handle(.swipe(.down))
         case "smash": hero.debugPerform(MoveTable.groundSmash)
         default: break
@@ -1469,7 +1472,7 @@ final class GameScene: SKScene {
         if hero.finisherReady, !hero.dead {
             guard finisherAura == nil else { return }
             let a = SKShapeNode(ellipseOf: CGSize(width: 96, height: 26))
-            a.fillColor = SKColor(red: 1, green: 0.85, blue: 0.3, alpha: 0.3); a.strokeColor = SKColor(red: 1, green: 0.9, blue: 0.4, alpha: 0.95)
+            a.fillColor = heroKind.color.withAlphaComponent(0.3); a.strokeColor = heroKind.color.withAlphaComponent(0.95)
             a.lineWidth = 4; a.glowWidth = 8; a.position = CGPoint(x: 0, y: 2); a.zPosition = -5
             a.run(.repeatForever(.sequence([.scale(to: 1.15, duration: 0.3), .scale(to: 0.92, duration: 0.3)])))
             hero.rig.addChild(a); finisherAura = a
@@ -1483,14 +1486,15 @@ final class GameScene: SKScene {
         let dir: CGFloat = hero.rig.facingRight ? 1 : -1
         let info: (String, CGFloat, TimeInterval, CGFloat)
         switch m.animation {
-        case .uppercut?: info = ("SKYBREAKER!", 50, 0.07, 240)
-        case .smash?:    info = ("EARTHSHATTER!", 130, 0.25, 330)
-        default:         info = ("METEOR!", 0, 0, 380)
+        case .uppercut?: info = (heroKind.finisherNames.up, 50, 0.07, 240)
+        case .smash?:    info = (heroKind.finisherNames.smash, 130, 0.25, 330)
+        case .hook?:     info = (heroKind.finisherNames.forward, 110, 0.12, 230)
+        default:         info = (heroKind.finisherNames.slam, 0, 0, 380)
         }
         let (title, ringX, delay, size) = info
         NSLog("FINISHER %@ at combo %d, next at %d", title, comboHUD.count, finisherAt)
         camShake = max(camShake, 16)
-        for (i, c) in [SKColor.black, SKColor(red: 1, green: 0.82, blue: 0.2, alpha: 1)].enumerated() {
+        for (i, c) in [SKColor.black, heroKind.color].enumerated() {
             let l = SKLabelNode(fontNamed: GameFont.banner)
             l.text = title; l.fontSize = 66; l.fontColor = c
             l.position = CGPoint(x: p.x + (i == 0 ? 4 : 0), y: p.y + hero.rig.height + 200 + (i == 0 ? -4 : 0)); l.zPosition = 9800 + CGFloat(i)
@@ -1502,7 +1506,7 @@ final class GameScene: SKScene {
         run(.sequence([.wait(forDuration: delay), .run { [weak self] in
             guard let self else { return }
             let ring = SKShapeNode(ellipseOf: CGSize(width: size * 2, height: size * 0.55))
-            ring.fillColor = SKColor(red: 1, green: 0.85, blue: 0.3, alpha: 0.3); ring.strokeColor = SKColor(red: 1, green: 0.9, blue: 0.4, alpha: 1); ring.lineWidth = 7; ring.glowWidth = 8
+            ring.fillColor = self.heroKind.color.withAlphaComponent(0.3); ring.strokeColor = self.heroKind.color; ring.lineWidth = 7; ring.glowWidth = 8
             ring.position = CGPoint(x: p.x + dir * ringX, y: p.y); ring.zPosition = 8000; ring.setScale(0.15)
             self.addChild(ring)
             ring.run(.sequence([.group([.scale(to: 1, duration: 0.22), .fadeOut(withDuration: 0.55)]), .removeFromParent()]))

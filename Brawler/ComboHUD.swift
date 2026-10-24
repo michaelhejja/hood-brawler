@@ -25,6 +25,7 @@ final class ComboHUD: SKNode {
     private let hits = ComboHUD.label(size: 28)
     private let rankLabel = ComboHUD.label(size: 28)
     private let readyLabel = ComboHUD.label(size: 26)
+    func setReadyColor(_ c: SKColor) { readyLabel.fontColor = c }
     private let barBack = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 120, height: 7), cornerRadius: 3.5)
     private let bar = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 120, height: 7), cornerRadius: 3.5)
 

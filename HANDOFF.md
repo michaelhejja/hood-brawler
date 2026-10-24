@@ -5,7 +5,7 @@ Repo: github.com/michaelhejja/hood-brawler
 Controls reference: `CONTROLS.md`
 
 ## Latest build
-Version 0.2, build 6 (see `git log` for the commit). Previous builds: 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
+Version 0.2, build 7 (see `git log` for the commit). Previous builds: 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
 Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Art
@@ -42,3 +42,9 @@ Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 - `AntiSpam` in `Combat.swift`: a boss that takes enough light melee hits in a short window (6 in 3s; 8 on Easy, 5 on Hard) goes immune, winds up and smashes. 9s cooldown.
 - Wired into `DemonBrain` and `ForgeKingBrain` only. Not the giant (has its ambush), necromancer, doppelganger, Bat King or Archmage.
 - Survival health scale is now 0.5 (was 0.65).
+
+## Finishers
+- Armed at 10 combo hits, spent on the next uppercut, ground smash, forward swipe (standing heavy attack or running power dash) or air slam. Back swipe is deliberately not a finisher (it fires weapons and rolls).
+- Names, color and tuning are per hero in `Skin.swift` (`HeroKind.finisherNames`, `.color`, `.finisherStyle`). Cloak: Skybreaker / Earthshatter / Knockout / Meteor (yellow). Ember: Air Flurry / Dance Shoes / Mega Slap / Reckoning (hot pink, lighter hits). Bully: Launched / Pulverized / Outta My Way / Anvil Drop (light blue, wider and heavier).
+- `FinisherStyle` multipliers (damage, reach, knockback, launch, stun) are first guesses. Cloak is the 1x baseline.
+- Hub and level portal titles are larger (32pt) for phone readability.
