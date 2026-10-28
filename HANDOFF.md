@@ -5,7 +5,7 @@ Repo: github.com/michaelhejja/hood-brawler
 Controls reference: `CONTROLS.md`
 
 ## Latest build
-Version 0.2, build 10 (see `git log` for the commit). Previous builds: 9 `5751a7f`, 8 `87d45e0`, 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
+Version 0.2, build 11 (see `git log` for the commit). Previous builds: 10 `2c49ff5`, 9 `5751a7f`, 8 `87d45e0`, 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
 Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Art
@@ -61,3 +61,8 @@ Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 - **Weapon art import:** draw on `Art/templates/weapon_guides.png` (2560x1640), then run `Art/import_weapons.sh weapons.png`. `WeaponArt` in `Sprites.swift` loads `weapon_<name>.png` and rebuilds the bow string, staff glows, shield glow, light blade glow and bomb spark as overlays. Weapons with no drawing keep their code art. Not yet tried with a real drawing.
 - **Speech:** every level `Say` is spoken by the hero and follows them; the Bat King's cries follow him. No loose bubbles remain.
 - Unchecked on screen: kneel timing, quick rise feel, the new scenery, the weapon loader.
+
+## HUD (build 11)
+- Top left: hero name (44pt), health bar, special bar. Bottom centre: boss name (40pt) and health bar.
+- No Menu button in play. Pause (top right) has RESUME / RESTART / HOME, or HUB for levels entered from the hub. The hub now pauses too, with RESUME / MENU and no restart.
+- The state read-out text and the touch-zone divider line only show with the `-debug` launch flag. The FPS/node counts and touch circles are still always on.

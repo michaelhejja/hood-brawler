@@ -108,6 +108,7 @@ struct ChunkyButtonStyle: ButtonStyle {
 struct PauseView: View {
     let onResume: () -> Void
     let onRestart: () -> Void
+    var showRestart = true
     var homeTitle = "HOME"
     let onHome: () -> Void
     var showBrightness = false
@@ -121,8 +122,10 @@ struct PauseView: View {
                 VStack(spacing: 14) {
                     Button("RESUME", action: onResume)
                         .buttonStyle(ChunkyButtonStyle(color: .orange))
-                    Button("RESTART", action: onRestart)
-                        .buttonStyle(ChunkyButtonStyle(color: .gray))
+                    if showRestart {
+                        Button("RESTART", action: onRestart)
+                            .buttonStyle(ChunkyButtonStyle(color: .gray))
+                    }
                     Button(homeTitle, action: onHome)
                         .buttonStyle(ChunkyButtonStyle(color: .gray))
                 }

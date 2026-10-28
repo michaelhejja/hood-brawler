@@ -1082,16 +1082,24 @@ final class GameScene: SKScene {
         let divider = SKShapeNode(rect: CGRect(x: -1, y: -size.height / 2, width: 2, height: size.height))
         divider.fillColor = .white; divider.strokeColor = .clear; divider.alpha = 0.15
         divider.zPosition = 10_000
-        cam.addChild(divider)
+        if ProcessInfo.processInfo.arguments.contains("-debug") { cam.addChild(divider) }      // marks the split between the move stick (left) and swipes (right)
         debugLabel.fontSize = 22
         debugLabel.fontColor = .white
         debugLabel.zPosition = 10_001
-        cam.addChild(debugLabel)
+        if ProcessInfo.processInfo.arguments.contains("-debug") { cam.addChild(debugLabel) }       // the state read-out is for development only
         hero.brain = PlayerBrain(input: input, fighter: hero)
         heroBar.zPosition = 10_000
         cam.addChild(heroBar)
+        heroName.text = heroKind.title; heroName.fontSize = 44; heroName.fontColor = .white
+        heroName.horizontalAlignmentMode = .left; heroName.verticalAlignmentMode = .center; heroName.zPosition = 10_000
+        let heroNameShade = SKLabelNode(fontNamed: GameFont.banner)
+        heroNameShade.text = heroName.text; heroNameShade.fontSize = 44; heroNameShade.fontColor = .black
+        heroNameShade.horizontalAlignmentMode = .left; heroNameShade.verticalAlignmentMode = .center
+        heroNameShade.position = CGPoint(x: 3, y: -3); heroNameShade.zPosition = -1
+        heroName.addChild(heroNameShade)
+        cam.addChild(heroName)
         bossBar.zPosition = 10_000; bossBar.isHidden = true
-        bossName.text = "BONE WYRM"; bossName.fontSize = 20; bossName.fontColor = .white
+        bossName.text = "BONE WYRM"; bossName.fontSize = 40; bossName.fontColor = .white
         bossName.verticalAlignmentMode = .center; bossName.zPosition = 10_000; bossName.isHidden = true
         cam.addChild(bossBar); cam.addChild(bossName)
         meterBar.zPosition = 10_000
@@ -1134,6 +1142,7 @@ final class GameScene: SKScene {
     private let foodDropChance = 0.3          // chance a KO'd enemy drops food
     private var bars: [ObjectIdentifier: HealthBar] = [:]
     private let heroBar = HealthBar(width: 300, height: 14)
+    private let heroName = SKLabelNode(fontNamed: GameFont.banner)
     private let meterBar = MeterBar(width: 300)
     private var nextSpawn: TimeInterval = 0
 
@@ -3448,10 +3457,13 @@ final class GameScene: SKScene {
         comboHUD.position = CGPoint(x: -visibleHalfWidth + 40, y: visibleHalfHeight - 150)
         goLabel.position = CGPoint(x: visibleHalfWidth - 150, y: 40)
         debugLabel.position = CGPoint(x: 0, y: visibleHalfHeight - 56)
-        heroBar.position = CGPoint(x: 0, y: -visibleHalfHeight + 28)
-        bossBar.position = CGPoint(x: 0, y: visibleHalfHeight - 62)
-        bossName.position = CGPoint(x: 0, y: visibleHalfHeight - 36)
-        meterBar.position = CGPoint(x: 0, y: -visibleHalfHeight + 16)
+        // Top left: the hero's name, health and special. Bottom centre: the boss.
+        let left = -visibleHalfWidth + 40
+        heroName.position = CGPoint(x: left, y: visibleHalfHeight - 40)
+        heroBar.position = CGPoint(x: left + 150, y: visibleHalfHeight - 88)
+        meterBar.position = CGPoint(x: left + 150, y: visibleHalfHeight - 104)
+        bossBar.position = CGPoint(x: 0, y: -visibleHalfHeight + 30)
+        bossName.position = CGPoint(x: 0, y: -visibleHalfHeight + 74)
         for t in input.debugTouches {
             let o = cam.convert(convertPoint(fromView: t.origin), from: self)
             let c = cam.convert(convertPoint(fromView: t.current), from: self)
@@ -3464,7 +3476,7 @@ final class GameScene: SKScene {
             dot.position = c
             debugLayer.addChild(ring); debugLayer.addChild(dot)
         }
-        debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  hp \(Int(hero.health))  wpn \(hero.weapon?.name ?? "none")\(hero.ammo.map { " x\($0)" } ?? "")  |  last: \(hero.lastGesture)"
+        if debugLabel.parent != nil { debugLabel.text = "\(hero.debugState)  speed \(Int(hero.velocity))  h \(Int(hero.rig.height))  hp \(Int(hero.health))  wpn \(hero.weapon?.name ?? "none")\(hero.ammo.map { " x\($0)" } ?? "")  |  last: \(hero.lastGesture)" }
     }
 
     // MARK: Loop
@@ -3621,13 +3633,8 @@ struct GameView: View {
         SpriteView(scene: scene, isPaused: paused, debugOptions: [.showsFPS, .showsNodeCount])
             .id(runID)
             .ignoresSafeArea()
-            .overlay(alignment: .topLeading) {
-                Button(action: onBack) { Label("Menu", systemImage: "chevron.left") }
-                    .buttonStyle(.borderedProminent)
-                    .padding()
-            }
             .overlay(alignment: .topTrailing) {
-                if mode != .hub, result == nil, !paused {
+                if result == nil, !paused {
                     Button { setPaused(true) } label: { Image(systemName: "pause.fill").font(.title3) }
                         .buttonStyle(.borderedProminent)
                         .padding()
@@ -3635,8 +3642,8 @@ struct GameView: View {
             }
             .overlay {
                 if paused, result == nil {
-                    PauseView(onResume: { setPaused(false) }, onRestart: retry,
-                              homeTitle: fromHub ? "HUB" : "HOME", onHome: fromHub ? backToHub : onBack, showBrightness: scene.isDark)
+                    PauseView(onResume: { setPaused(false) }, onRestart: retry, showRestart: mode != .hub,
+                              homeTitle: mode == .hub ? "MENU" : fromHub ? "HUB" : "HOME", onHome: fromHub ? backToHub : onBack, showBrightness: scene.isDark)
                         .transition(.opacity)
                 }
             }
@@ -3656,7 +3663,7 @@ struct GameView: View {
         scene.onGameOver = { result = $0 }
         scene.onEnterLevel = { enter($0) }
         scene.onExitLevel = { fromHub ? backToHub() : onBack() }
-        scene.onTogglePause = { if mode != .hub, result == nil { setPaused(!paused) } }
+        scene.onTogglePause = { if result == nil { setPaused(!paused) } }
     }
 
     private func setPaused(_ p: Bool) {
