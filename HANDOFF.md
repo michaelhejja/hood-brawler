@@ -5,7 +5,7 @@ Repo: github.com/michaelhejja/hood-brawler
 Controls reference: `CONTROLS.md`
 
 ## Latest build
-Version 0.2, build 11 (see `git log` for the commit). Previous builds: 10 `2c49ff5`, 9 `5751a7f`, 8 `87d45e0`, 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
+Version 0.2, build 12 (see `git log` for the commit). Previous builds: 11 `d76cebb`, 10 `2c49ff5`, 9 `5751a7f`, 8 `87d45e0`, 7 `c5ffd7b`, 6 `b401b9f`, 5 `ba34f42`, 4 `50d7f7a`, 3 `8ee7a87`.
 Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 
 ## Art
@@ -66,3 +66,9 @@ Raise `CURRENT_PROJECT_VERSION` in `project.yml` before the next upload.
 - Top left: hero name (44pt), health bar, special bar. Bottom centre: boss name (40pt) and health bar.
 - No Menu button in play. Pause (top right) has RESUME / RESTART / HOME, or HUB for levels entered from the hub. The hub now pauses too, with RESUME / MENU and no restart.
 - The state read-out text and the touch-zone divider line only show with the `-debug` launch flag. The FPS/node counts and touch circles are still always on.
+
+## Enzo Vendetta (build 12)
+- Fourth hero. Art: `Brawler/Sprites/enzo_*.png` (loaded through SpriteSkin, `EnzoSkin` in `Skin.swift`). No starting weapon: bare-handed moves hit at full strength (`stats.fistPower`).
+- Rage (`stats.rage`, `rageLevel` in `Fighter.swift`): below 40% health his damage rises up to 1.6x and damage taken drops to 1/1.6. Red pulse and ENRAGED! callout come from `updateRage` in `GameScene.swift`.
+- Names are placeholders: finishers Blown Fuse / Temper Tantrum / Hothead / Road Rage; special "Vendetta" (reuses Cloak's rage slam pose, charges faster from damage taken). Rage strength (0.6) and the 40% threshold are untuned.
+- Open question: the doppelganger boss copies the hero's stats, so an Enzo doppelganger also gets rage.

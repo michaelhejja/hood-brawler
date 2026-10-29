@@ -605,6 +605,8 @@ final class GameScene: SKScene {
     private var snowFall: SKNode?
     private var finisherAt = FinisherTuning.threshold      // combo count at which the next finisher is armed
     private var finisherAura: SKShapeNode?
+    private var rageAura: SKShapeNode?
+    private var wasEnraged = false
     private var batKing: Fighter?
     private var doppel: Fighter?
     private var forgeKing: Fighter?
@@ -1504,6 +1506,29 @@ final class GameScene: SKScene {
         } else if let a = finisherAura { a.removeFromParent(); finisherAura = nil }
     }
 
+    /// Enzo: a red pulse under his feet that grows as his health drops, and a callout when it kicks in.
+    private func updateRage() {
+        let level = hero.rageLevel
+        if level >= 0.3, !hero.dead {
+            if rageAura == nil {
+                let a = SKShapeNode(ellipseOf: CGSize(width: 120, height: 32))
+                a.fillColor = SKColor(red: 1, green: 0.1, blue: 0.05, alpha: 0.35); a.strokeColor = SKColor(red: 1, green: 0.25, blue: 0.1, alpha: 1)
+                a.lineWidth = 4; a.glowWidth = 10; a.position = CGPoint(x: 0, y: 2); a.zPosition = -6
+                a.run(.repeatForever(.sequence([.scale(to: 1.2, duration: 0.18), .scale(to: 0.9, duration: 0.18)])))
+                hero.rig.addChild(a); rageAura = a
+            }
+            rageAura?.alpha = 0.4 + 0.6 * level
+            if !wasEnraged {
+                wasEnraged = true
+                pickups.floatText("ENRAGED!", at: CGPoint(x: hero.rig.position.x, y: hero.rig.position.y + hero.rig.height + 170), color: SKColor(red: 1, green: 0.25, blue: 0.15, alpha: 1))
+                bossSlam(0.5)
+            }
+        } else {
+            if let a = rageAura { a.removeFromParent(); rageAura = nil }
+            if level < 0.15 { wasEnraged = false }          // healed back up: it can kick in again
+        }
+    }
+
     /// A finisher went off: spend the charge (the next one is `threshold` hits away), name it, shake the screen and ring the impact.
     private func finisherFired(_ m: Move) {
         finisherAt = comboHUD.count + FinisherTuning.threshold
@@ -1574,6 +1599,7 @@ final class GameScene: SKScene {
         hero.finisherReady = args.contains("-finishertest") || (comboHUD.count >= finisherAt && !hero.dead)
         comboHUD.finisherReady = hero.finisherReady && comboHUD.count > 0
         updateFinisherAura()
+        updateRage()
         emphasize(contacts)
         if args.contains("-launchprofile"), profileHit0 == nil, contacts.contains(where: { $0.move?.name == "uppercut" }) { profileHit0 = realNow }
 

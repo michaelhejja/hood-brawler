@@ -309,4 +309,12 @@ enum Specials {
                      Hit(start: 0.44, duration: 0.12, reach: -200...200, depth: 120, heightTolerance: 220, damage: 13, knockback: 600, launch: 520, stun: 0.8, vsHeavy: 3))
             .emphasized(.special),
         gainPerDamageDealt: 0.0088)
+
+    /// Enzo's: a quick-charging ground pound that fills fastest from damage he takes. Reuses Cloak's rage slam pose for now.
+    static let vendetta = Special(
+        name: "vendetta", chargeTime: 0.8, chargeAnimation: .powerUp,
+        release: Move(name: "vendetta", animation: .rageSlam, lock: 0.75, plant: true)
+            .hitting(Hit(start: 0.19, duration: 0.12, reach: -330...330, depth: 170, heightTolerance: 400, damage: 40, knockback: 700, launch: 600, stun: 0.9, vsHeavy: 3))
+            .emphasized(.special),
+        gainPerDamageDealt: 0.005, gainPerDamageTaken: 0.0055)
 }

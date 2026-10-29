@@ -28,6 +28,8 @@ struct FighterStats {
     var slamVZ: CGFloat = 1500
     var maxHealth: CGFloat = 100
     var damageScale: CGFloat = 1        // multiplies the damage this fighter deals
+    var rage: CGFloat = 0               // 0 = none. Below 40% health it rises to full: deals (1 + rage)x damage and takes 1/(1 + rage) of it
+    var fistPower: CGFloat = 0.7        // damage multiplier for weapon moves thrown bare-handed (a fist fighter has 1)
     var attackSpeed: CGFloat = 1        // grounded attacks run this much faster (Frenzy buff); jumps and air moves are unaffected
     var size: CGFloat = 1               // body scale for combat: multiplies hit reach and how far its own body reaches into hits
     var ignoresPickups = false          // never grabs anything, weapons included (too big to use them)
@@ -308,8 +310,12 @@ final class Fighter {
 
     /// Damage multiplier: the fighter's own strength, times the weapon for weapon moves (bare-handed hits softer).
     var damageMultiplier: CGFloat {
-        stats.damageScale * (current?.move.usesWeapon == true ? (weapon?.power ?? 0.7) : 1)
+        stats.damageScale * (1 + stats.rage * rageLevel) * (current?.move.usesWeapon == true ? (weapon?.power ?? stats.fistPower) : 1)
     }
+
+    /// 0...1: how worked up it is. Zero above 40% health, full at none. Only fighters with `stats.rage` ever feel it.
+    var rageLevel: CGFloat { stats.rage > 0 ? max(0, min(1, (0.4 - healthFraction) / 0.4)) : 0 }
+    private var rageGuard: CGFloat { 1 / (1 + stats.rage * rageLevel) }
 
     func equip(_ w: Weapon?) {
         if guarding, w?.name != "shield" { endGuard() }
@@ -745,7 +751,7 @@ final class Fighter {
             lightHitTimes.append(now)
             if lightHitTimes.count > 20 { lightHitTimes.removeFirst() }
         }
-        health = max(0, health - hit.damage * power * scale * damageTaken * (stats.unlaunchable ? hit.vsHeavy : 1))
+        health = max(0, health - hit.damage * power * scale * damageTaken * rageGuard * (stats.unlaunchable ? hit.vsHeavy : 1))
         if hit.chills > 0, !dead { chill(for: hit.chills) }
         current = nil; claims = [:]; buffered = nil; advance = nil
         brakeUntil = 0; velocity = 0; loco = nil

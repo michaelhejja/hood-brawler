@@ -213,17 +213,18 @@ struct BullySkin: Skin {
 
 /// The playable heroes. Everything else (moves, weapons, animations) is shared.
 enum HeroKind: Int, CaseIterable {
-    case cloak, ember, bully
+    case cloak, ember, bully, enzo
 
-    var title: String { ["CLOAK", "EMBER", "BULLY"][rawValue] }
+    var title: String { ["CLOAK", "EMBER", "BULLY", "ENZO"][rawValue] }
     var skin: Skin {
         if self == .cloak, ProcessInfo.processInfo.arguments.contains("-templateskin") { return TemplateSkin() }      // the custom-proportion rig
         if self == .bully { return SpriteSkin.wrap("bully", BullySkin()) }
+        if self == .enzo { return SpriteSkin.wrap("enzo", EnzoSkin()) }
         if self == .ember { return SpriteSkin.wrap("ember", EmberSkin()) }
         return [TemplateSkin(), EmberSkin(), BullySkin()][rawValue]
     }
     /// The hero's signature color: finisher callouts, the finisher ring and the READY label.
-    var color: SKColor { [SKColor(red: 1, green: 0.82, blue: 0.2, alpha: 1), SKColor(red: 1, green: 0.18, blue: 0.58, alpha: 1), SKColor(red: 0.55, green: 0.78, blue: 1, alpha: 1)][rawValue] }
+    var color: SKColor { [SKColor(red: 1, green: 0.82, blue: 0.2, alpha: 1), SKColor(red: 1, green: 0.18, blue: 0.58, alpha: 1), SKColor(red: 0.55, green: 0.78, blue: 1, alpha: 1), SKColor(red: 1, green: 0.22, blue: 0.16, alpha: 1)][rawValue] }
     /// Ember's finishers hit lighter and stun for less; Bully's are wider, heavier and stun for longer. Cloak is the baseline.
     var finisherStyle: FinisherStyle {
         switch self {
@@ -237,10 +238,11 @@ enum HeroKind: Int, CaseIterable {
         switch self {
         case .ember: return ("AIR FLURRY!", "DANCE SHOES!", "MEGA SLAP!", "RECKONING!")
         case .bully: return ("LAUNCHED!", "PULVERIZED!", "OUTTA MY WAY!", "ANVIL DROP!")
+        case .enzo:  return ("BLOWN FUSE!", "TEMPER TANTRUM!", "HOTHEAD!", "ROAD RAGE!")
         default:     return ("SKYBREAKER!", "EARTHSHATTER!", "KNOCKOUT!", "METEOR!")
         }
     }
-    var special: Special { [Specials.rageSlam, Specials.whirlwind, Specials.bullRush][rawValue] }
+    var special: Special { [Specials.rageSlam, Specials.whirlwind, Specials.bullRush, Specials.vendetta][rawValue] }
     var bulk: CGFloat { self == .bully ? 1.12 : 1 }
     var stats: FighterStats {
         var s = FighterStats()
@@ -248,6 +250,7 @@ enum HeroKind: Int, CaseIterable {
         case .cloak: break
         case .ember:   s.runSpeed = 600; s.baseAccel = 1800; s.maxHealth = 75;  s.damageScale = 1.15     // quick and hits harder, but fragile
         case .bully: s.runSpeed = 400; s.baseAccel = 800;  s.maxHealth = 170; s.damageScale = 1.35     // slow, tough and heavy-handed
+        case .enzo:  s.rage = 0.6; s.fistPower = 1                                                         // well rounded (Cloak's numbers); hits and shrugs off more as his health drops
         }
         return s
     }
@@ -734,4 +737,18 @@ struct WizardSkin: Skin {
 
     func makeLeg(_ side: LegSide) -> SKNode { limbShape(width: 10, height: 28, fill: robeDark, line: 3) }
     func makeArm(_ role: ArmRole) -> SKNode { limbShape(width: 11, height: 26, fill: robe, line: 3) }
+}
+
+
+// MARK: - Enzo
+
+/// Enzo Vendetta: the shared humanoid template with no starting weapon. His drawn parts (Sprites/enzo_*.png) load through SpriteSkin.
+struct EnzoSkin: Skin {
+    private let base = TemplateSkin()
+    var layout: RigLayout { base.layout }
+    var defaultWeapon: Weapon? { nil }
+    func makeHead() -> SKNode { base.makeHead() }
+    func makeTorso() -> SKNode { base.makeTorso() }
+    func makeLeg(_ side: LegSide) -> SKNode { base.makeLeg(side) }
+    func makeArm(_ role: ArmRole) -> SKNode { base.makeArm(role) }
 }
